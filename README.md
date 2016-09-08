@@ -1,2 +1,7 @@
-# VSFilter
-VSFilter with VapourSynth interface added, based on the source of MPC-BE v1.4.6 (build 1478)
+Usage
+=====
+
+    vsf.TextSub(clip clip, string file[, int charset=1, float fps=-1.0, string vfr=''])
+    vsf.VobSub(clip clip, string file)
+
+* clip: Clip to process. Only YUV420P8 and RGB24 are supported.

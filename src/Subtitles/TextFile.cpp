@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -23,7 +23,9 @@
 #include <atlbase.h>
 #include <afxinet.h>
 #include "TextFile.h"
-#include "Utf8.h"
+#include <Utf8.h>
+#include "../DSUtil/FileHandle.h"
+#include "../DSUtil/HTTPAsync.h"
 
 #define TEXTFILE_BUFFER_SIZE (64 * 1024)
 
@@ -39,7 +41,7 @@ CTextFile::CTextFile(enc encoding/* = ASCII*/, enc defaultencoding/* = ASCII*/)
 	m_wbuffer.Allocate(TEXTFILE_BUFFER_SIZE);
 }
 
-bool CTextFile::Open(LPCTSTR lpszFileName)
+bool CTextFile::Open(LPCWSTR lpszFileName)
 {
 	if (!__super::Open(lpszFileName, modeRead | typeBinary | shareDenyNone)) {
 		return false;
@@ -90,12 +92,12 @@ bool CTextFile::ReopenAsText()
 {
 	CString strFileName = m_strFileName;
 
-	Close();
+	__super::Close();
 
 	return !!__super::Open(strFileName, modeRead | typeText | shareDenyNone);
 }
 
-bool CTextFile::Save(LPCTSTR lpszFileName, enc e)
+bool CTextFile::Save(LPCWSTR lpszFileName, enc e)
 {
 	if (!__super::Open(lpszFileName, modeCreate | modeWrite | shareDenyWrite | (e == ASCII ? typeText : typeBinary))) {
 		return false;
@@ -158,8 +160,8 @@ ULONGLONG CTextFile::Seek(LONGLONG lOff, UINT nFrom)
 
 	// Try to reuse the buffer if any
 	if (m_nInBuffer > 0) {
-		ULONGLONG pos = GetPosition();
-		ULONGLONG len = GetLength();
+		const LONGLONG pos = GetPosition();
+		const LONGLONG len = GetLength();
 
 		switch (nFrom) {
 			default:
@@ -173,9 +175,9 @@ ULONGLONG CTextFile::Seek(LONGLONG lOff, UINT nFrom)
 				break;
 		}
 
-		lOff = max((LONGLONG)min((ULONGLONG)lOff, len), 0ll);
+		lOff = std::clamp(lOff, 0LL, len);
 
-		m_posInBuffer += LONGLONG(ULONGLONG(lOff) - pos);
+		m_posInBuffer += lOff - pos;
 		if (m_posInBuffer < 0 || m_posInBuffer >= m_nInBuffer) {
 			// If we would have to end up out of the buffer, we just reset it and seek normally
 			m_nInBuffer = m_posInBuffer = 0;
@@ -221,7 +223,7 @@ void CTextFile::WriteString(LPCWSTR lpsz/*CStringW str*/)
 		__super::WriteString(str);
 	} else if (m_encoding == ANSI) {
 		str.Replace(L"\n", L"\r\n");
-		CStringA stra = CStringA(str); // TODO: codepage
+		CStringA stra(str); // TODO: codepage
 		Write((LPCSTR)stra, stra.GetLength());
 	} else if (m_encoding == UTF8) {
 		str.Replace(L"\n", L"\r\n");
@@ -712,61 +714,52 @@ CWebTextFile::CWebTextFile(CTextFile::enc encoding/* = ASCII*/, CTextFile::enc d
 {
 }
 
-bool CWebTextFile::Open(LPCTSTR lpszFileName)
+CWebTextFile::~CWebTextFile()
+{
+	Close();
+}
+
+bool CWebTextFile::Open(LPCWSTR lpszFileName)
 {
 	CString fn(lpszFileName);
 
-	if (fn.Find(_T("http://")) != 0 && fn.Find(_T("https://")) != 0) {
+	if (fn.Find(L"http://") != 0 && fn.Find(L"https://") != 0) {
 		return __super::Open(lpszFileName);
 	}
 
-	HINTERNET f, s = InternetOpen(L"Googlebot", 0, NULL, NULL, 0);
-	if (s) {
-		f = InternetOpenUrl(s, fn, NULL, 0, INTERNET_FLAG_NO_COOKIES | INTERNET_FLAG_TRANSFER_BINARY | INTERNET_FLAG_EXISTING_CONNECT | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD, 0);
-		if (f) {
-			TCHAR path[MAX_PATH];
-			GetTempPath(MAX_PATH, path);
-
-			fn = path + fn.Mid(fn.ReverseFind('/') + 1);
-			int i = fn.Find(_T("?"));
-			if (i > 0) {
-				fn = fn.Left(i);
-			}
+	CHTTPAsync m_HTTPAsync;
+	if (SUCCEEDED(m_HTTPAsync.Connect(lpszFileName, 5000))) {
+		if (GetTemporaryFilePath(L".tmp", fn)) {
 			CFile temp;
 			if (!temp.Open(fn, modeCreate | modeWrite | typeBinary | shareDenyWrite)) {
-				InternetCloseHandle(f);
-				InternetCloseHandle(s);
+				m_HTTPAsync.Close();
 				return false;
 			}
 
-			char buffer[1024]	= { 0 };
-			DWORD dwBytesRead	= 0;
-			DWORD totalSize		= 0;
+			BYTE buffer[1024] = {};
+			DWORD dwSizeRead  = 0;
+			DWORD totalSize   = 0;
 			do {
-				if (InternetReadFile(f, (LPVOID)buffer, _countof(buffer), &dwBytesRead) == FALSE) {
+				if (m_HTTPAsync.Read(buffer, 1024, &dwSizeRead) != S_OK) {
 					break;
 				}
-
-				temp.Write(buffer, dwBytesRead);
-				totalSize += dwBytesRead;
-			} while (dwBytesRead && totalSize < m_llMaxSize);
-			InternetCloseHandle(f);
+				temp.Write(buffer, dwSizeRead);
+				totalSize += dwSizeRead;
+			} while (dwSizeRead && totalSize < m_llMaxSize);
+			temp.Close();
 
 			if (totalSize) {
 				m_tempfn = fn;
 			}
-
-			InternetCloseHandle(f);
 		}
 
-		InternetCloseHandle(s);
+		m_HTTPAsync.Close();
 	}
-
 
 	return __super::Open(m_tempfn);
 }
 
-bool CWebTextFile::Save(LPCTSTR lpszFileName, enc e)
+bool CWebTextFile::Save(LPCWSTR lpszFileName, enc e)
 {
 	// CWebTextFile is read-only...
 	ASSERT(0);
@@ -775,10 +768,12 @@ bool CWebTextFile::Save(LPCTSTR lpszFileName, enc e)
 
 void CWebTextFile::Close()
 {
-	__super::Close();
+	if (m_pStream) {
+		__super::Close();
+	}
 
 	if (!m_tempfn.IsEmpty()) {
-		_tremove(m_tempfn);
+		_wremove(m_tempfn);
 		m_tempfn.Empty();
 	}
 }
@@ -789,7 +784,7 @@ CString AToT(CStringA str)
 {
 	CString ret;
 	for (int i = 0, j = str.GetLength(); i < j; i++) {
-		ret += (TCHAR)(BYTE)str[i];
+		ret += (WCHAR)(BYTE)str[i];
 	}
 	return ret;
 }

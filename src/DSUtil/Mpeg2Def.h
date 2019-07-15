@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -37,7 +37,7 @@ enum PES_STREAM_TYPE {
 	PES_0d								= 0x0D,	// ISO/IEC 13818-6 type D
 	PES_0e								= 0x0E,	// ITU-T Rec. H.222.0 | ISO/IEC 13818-1 auxiliary
 	AUDIO_STREAM_AAC					= 0x0F,	// ISO/IEC 13818-7 Audio with ADTS transport syntax
-	PES_10								= 0x10,	// ISO/IEC 14496-2 Visual
+	VIDEO_STREAM_MPEG4					= 0x10,	// ISO/IEC 14496-2 Visual
 	AUDIO_STREAM_AAC_LATM				= 0x11,	// ISO/IEC 14496-3 Audio with the LATM transport syntax as defined in ISO/IEC 14496-3 / AMD 1
 	PES_12								= 0x12,	// ISO/IEC 14496-1 SL-packetized stream or FlexMux stream carried in PES packets
 	PES_13								= 0x13,	// ISO/IEC 14496-1 SL-packetized stream or FlexMux stream carried in ISO/IEC14496_sections.
@@ -52,8 +52,8 @@ enum PES_STREAM_TYPE {
 	PES_1C								= 0x1C,	// ISO/IEC 14496-3 Audio, without using any additional transport syntax, such as DST, ALS and SLS
 	TEXT								= 0x1D,	// ISO/IEC 14496-17 Text
 	AUXILIARY_VIDEO_STREAM				= 0x1E,	// Auxiliary video stream as defined in ISO/IEC 23002-3
-	SVC_H264							= 0x1F,	// SVC video sub-bitstream of an AVC video stream conforming to one or more profiles defined in Annex G of ITU-T Rec. H.264 | ISO/IEC 14496-10
-	MVC_H264							= 0x20, // MVC video sub-bitstream of an AVC video stream conforming to one or more profiles defined in Annex H of ITU-T Rec. H.264 | ISO/IEC 14496-10
+	VIDEO_STREAM_H264_SVC				= 0x1F,	// SVC video sub-bitstream of an AVC video stream conforming to one or more profiles defined in Annex G of ITU-T Rec. H.264 | ISO/IEC 14496-10
+	VIDEO_STREAM_H264_MVC				= 0x20, // MVC video sub-bitstream of an AVC video stream conforming to one or more profiles defined in Annex H of ITU-T Rec. H.264 | ISO/IEC 14496-10
 	VIDEO_STREAM_MPEG2_ADDITIONAL_VIEW	= 0x22,	// Additional view Rec. ITU-T H.262 - ISO/IEC 13818-2 video stream for service-compatible stereoscopic 3D services
 	VIDEO_STREAM_H264_ADDITIONAL_VIEW	= 0x23,	// Additional view Rec. ITU-T H.264 - ISO/IEC 14496-10 video stream for service-compatible stereoscopic 3D services
 	VIDEO_STREAM_HEVC					= 0x24,
@@ -64,6 +64,7 @@ enum PES_STREAM_TYPE {
 	AUDIO_STREAM_AC3_PLUS				= 0x84,
 	AUDIO_STREAM_DTS_HD					= 0x85,
 	AUDIO_STREAM_DTS_HD_MASTER_AUDIO	= 0x86,
+	AUDIO_STREAM_EAC3					= 0x87,
 	PRESENTATION_GRAPHICS_STREAM		= 0x90,
 	INTERACTIVE_GRAPHICS_STREAM			= 0x91,
 	SUBTITLE_STREAM						= 0x92,

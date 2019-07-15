@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -22,6 +22,7 @@
 #include "stdafx.h"
 #include "DSUtil.h"
 #include "MediaTypeEx.h"
+#include "AudioParser.h"
 
 #include <MMReg.h>
 #include <InitGuid.h>
@@ -30,8 +31,224 @@
 #include <d3d9types.h>
 #include <dxva.h>
 #include <dxva2api.h>
+#include <map>
+#include "MediaDescription.h"
+#include "std_helper.h"
 
 #include "GUIDString.h"
+
+static const std::map<DWORD, LPCSTR> vfourcs = {
+	{FCC('WMV1'), "Windows Media Video 7"},
+	{FCC('WMV2'), "Windows Media Video 8"},
+	{FCC('WMV3'), "Windows Media Video 9"},
+	{FCC('DIV3'), "DivX 3"},
+	{FCC('MP43'), "MSMPEG4v3"},
+	{FCC('MP42'), "MSMPEG4v2"},
+	{FCC('MP41'), "MSMPEG4v1"},
+	{FCC('DX30'), "DivX 3"},
+	{FCC('DX50'), "DivX 5"},
+	{FCC('DIVX'), "DivX 6"},
+	{FCC('XVID'), "Xvid"},
+	{FCC('MP4V'), "MPEG4 Video"},
+	{FCC('AVC1'), "H.264/AVC"},
+	{FCC('H264'), "H.264/AVC"},
+	{FCC('RV10'), "RealVideo 1"},
+	{FCC('RV20'), "RealVideo 2"},
+	{FCC('RV30'), "RealVideo 3"},
+	{FCC('RV40'), "RealVideo 4"},
+	{FCC('FLV1'), "Flash Video 1"},
+	{FCC('FLV4'), "Flash Video 4"},
+	{FCC('VP50'), "On2 VP5"},
+	{FCC('VP60'), "On2 VP6"},
+	{FCC('SVQ3'), "SVQ3"},
+	{FCC('SVQ1'), "SVQ1"},
+	{FCC('H263'), "H263"},
+	{FCC('DRAC'), "Dirac"},
+	{FCC('WVC1'), "VC-1"},
+	{FCC('THEO'), "Theora"},
+	{FCC('HVC1'), "HEVC"},
+	{FCC('HM91'), "HEVC(HM9.1)"},
+	{FCC('HM10'), "HEVC(HM10)"},
+	{FCC('HM12'), "HEVC(HM12)"},
+};
+
+static const std::map<WORD, LPCSTR> aformattags = {
+	// MMReg.h
+	{WAVE_FORMAT_ADPCM,                 "MS ADPCM"},
+	{WAVE_FORMAT_IEEE_FLOAT,            "IEEE Float"},
+	{WAVE_FORMAT_ALAW,                  "aLaw"},
+	{WAVE_FORMAT_MULAW,                 "muLaw"},
+	{WAVE_FORMAT_DTS,                   "DTS"},
+	{WAVE_FORMAT_DRM,                   "DRM"},
+	{WAVE_FORMAT_WMAVOICE9,             "WMA Voice"},
+	{WAVE_FORMAT_WMAVOICE10,            "WMA Voice"},
+	{WAVE_FORMAT_OKI_ADPCM,             "OKI ADPCM"},
+	{WAVE_FORMAT_IMA_ADPCM,             "IMA ADPCM"},
+	{WAVE_FORMAT_MEDIASPACE_ADPCM,      "Mediaspace ADPCM"},
+	{WAVE_FORMAT_SIERRA_ADPCM,          "Sierra ADPCM"},
+	{WAVE_FORMAT_G723_ADPCM,            "G723 ADPCM"},
+	{WAVE_FORMAT_DIALOGIC_OKI_ADPCM,    "Dialogic OKI ADPCM"},
+	{WAVE_FORMAT_MEDIAVISION_ADPCM,     "Media Vision ADPCM"},
+	{WAVE_FORMAT_YAMAHA_ADPCM,          "Yamaha ADPCM"},
+	{WAVE_FORMAT_DSPGROUP_TRUESPEECH,   "DSP Group Truespeech"},
+	{WAVE_FORMAT_DOLBY_AC2,             "Dolby AC2"},
+	{WAVE_FORMAT_GSM610,                "GSM610"},
+	{WAVE_FORMAT_MSNAUDIO,              "MSN Audio"},
+	{WAVE_FORMAT_ANTEX_ADPCME,          "Antex ADPCME"},
+	{WAVE_FORMAT_CS_IMAADPCM,           "Crystal Semiconductor IMA ADPCM"},
+	{WAVE_FORMAT_ROCKWELL_ADPCM,        "Rockwell ADPCM"},
+	{WAVE_FORMAT_ROCKWELL_DIGITALK,     "Rockwell Digitalk"},
+	{WAVE_FORMAT_G721_ADPCM,            "G721"},
+	{WAVE_FORMAT_G728_CELP,             "G728"},
+	{WAVE_FORMAT_MSG723,                "MSG723"},
+	{WAVE_FORMAT_MPEG,                  "MPEG Audio"},
+	{WAVE_FORMAT_MPEGLAYER3,            "MP3"},
+	{WAVE_FORMAT_LUCENT_G723,           "Lucent G723"},
+	{WAVE_FORMAT_VOXWARE,               "Voxware"},
+	{WAVE_FORMAT_G726_ADPCM,            "G726"},
+	{WAVE_FORMAT_G722_ADPCM,            "G722"},
+	{WAVE_FORMAT_G729A,                 "G729A"},
+	{WAVE_FORMAT_MEDIASONIC_G723,       "MediaSonic G723"},
+	{WAVE_FORMAT_ZYXEL_ADPCM,           "ZyXEL ADPCM"},
+	{WAVE_FORMAT_RAW_AAC1,              "AAC"},
+	{WAVE_FORMAT_RHETOREX_ADPCM,        "Rhetorex ADPCM"},
+	{WAVE_FORMAT_VIVO_G723,             "Vivo G723"},
+	{WAVE_FORMAT_VIVO_SIREN,            "Vivo Siren"},
+	{WAVE_FORMAT_DIGITAL_G723,          "Digital G723"},
+	{WAVE_FORMAT_SANYO_LD_ADPCM,        "Sanyo LD ADPCM"},
+	{WAVE_FORMAT_MSAUDIO1,              "WMA 1"},
+	{WAVE_FORMAT_WMAUDIO2,              "WMA 2"},
+	{WAVE_FORMAT_WMAUDIO3,              "WMA Pro"},
+	{WAVE_FORMAT_WMAUDIO_LOSSLESS,      "WMA Lossless"},
+	{WAVE_FORMAT_CREATIVE_ADPCM,        "Creative ADPCM"},
+	{WAVE_FORMAT_CREATIVE_FASTSPEECH8,  "Creative Fastspeech 8"},
+	{WAVE_FORMAT_CREATIVE_FASTSPEECH10, "Creative Fastspeech 10"},
+	{WAVE_FORMAT_UHER_ADPCM,            "UHER ADPCM"},
+	{WAVE_FORMAT_DTS2,                  "DTS"},
+	{WAVE_FORMAT_DOLBY_AC3_SPDIF,       "S/PDIF"},
+	// other
+	{WAVE_FORMAT_DOLBY_AC3,             "Dolby AC3"},
+	{WAVE_FORMAT_LATM_AAC,              "AAC(LATM)"},
+	{WAVE_FORMAT_FLAC,                  "FLAC"},
+	{WAVE_FORMAT_TTA1,                  "TTA"},
+	{WAVE_FORMAT_WAVPACK4,              "WavPack"},
+	{WAVE_FORMAT_14_4,                  "RealAudio 14.4"},
+	{WAVE_FORMAT_28_8,                  "RealAudio 28.8"},
+	{WAVE_FORMAT_ATRC,                  "RealAudio ATRC"},
+	{WAVE_FORMAT_COOK,                  "RealAudio COOK"},
+	{WAVE_FORMAT_DNET,                  "RealAudio DNET"},
+	{WAVE_FORMAT_RAAC,                  "RealAudio RAAC"},
+	{WAVE_FORMAT_RACP,                  "RealAudio RACP"},
+	{WAVE_FORMAT_SIPR,                  "RealAudio SIPR"},
+	{WAVE_FORMAT_PS2_PCM,               "PS2 PCM"},
+	{WAVE_FORMAT_PS2_ADPCM,             "PS2 ADPCM"},
+	{WAVE_FORMAT_SPEEX,                 "Speex"},
+	{WAVE_FORMAT_ADX_ADPCM,             "ADX ADPCM"},
+};
+
+static const std::map<GUID, LPCSTR> audioguids = {
+	{MEDIASUBTYPE_PCM,             "PCM"},
+	{MEDIASUBTYPE_IEEE_FLOAT,      "IEEE Float"},
+	{MEDIASUBTYPE_DVD_LPCM_AUDIO,  "PCM"},
+	{MEDIASUBTYPE_HDMV_LPCM_AUDIO, "LPCM"},
+	{MEDIASUBTYPE_Vorbis,          "Vorbis (deprecated)"},
+	{MEDIASUBTYPE_Vorbis2,         "Vorbis"},
+	{MEDIASUBTYPE_MP4A,            "MPEG4 Audio"},
+	{MEDIASUBTYPE_FLAC_FRAMED,     "FLAC (framed)"},
+	{MEDIASUBTYPE_DOLBY_AC3,       "Dolby AC3"},
+	{MEDIASUBTYPE_DOLBY_DDPLUS,    "DD+"},
+	{MEDIASUBTYPE_DOLBY_TRUEHD,    "TrueHD"},
+	{MEDIASUBTYPE_DTS,             "DTS"},
+	{MEDIASUBTYPE_MLP,             "MLP"},
+	{MEDIASUBTYPE_ALAC,            "ALAC"},
+	{MEDIASUBTYPE_PCM_NONE,        "QT PCM"},
+	{MEDIASUBTYPE_PCM_RAW,         "QT PCM"},
+	{MEDIASUBTYPE_PCM_TWOS,        "PCM"},
+	{MEDIASUBTYPE_PCM_SOWT,        "QT PCM"},
+	{MEDIASUBTYPE_PCM_IN24,        "PCM"},
+	{MEDIASUBTYPE_PCM_IN32,        "PCM"},
+	{MEDIASUBTYPE_PCM_FL32,        "QT PCM"},
+	{MEDIASUBTYPE_PCM_FL64,        "QT PCM"},
+	{MEDIASUBTYPE_IMA4,            "ADPCM"},
+	{MEDIASUBTYPE_ADPCM_SWF,       "ADPCM"},
+	{MEDIASUBTYPE_IMA_AMV,         "ADPCM"},
+	{MEDIASUBTYPE_ALS,             "ALS"},
+	{MEDIASUBTYPE_QDMC,            "QDMC"},
+	{MEDIASUBTYPE_QDM2,            "QDM2"},
+	{MEDIASUBTYPE_RoQA,            "ROQA"},
+	{MEDIASUBTYPE_APE,             "APE"},
+	{MEDIASUBTYPE_AMR,             "AMR"},
+	{MEDIASUBTYPE_SAMR,            "AMR"},
+	{MEDIASUBTYPE_SAWB,            "AMR"},
+	{MEDIASUBTYPE_OPUS,            "Opus"},
+	{MEDIASUBTYPE_BINKA_DCT,       "BINK DCT"},
+	{MEDIASUBTYPE_AAC_ADTS,        "AAC"},
+	{MEDIASUBTYPE_DSD,             "DSD"},
+	{MEDIASUBTYPE_DSD1,            "DSD"},
+	{MEDIASUBTYPE_DSD8,            "DSD"},
+	{MEDIASUBTYPE_DSDL,            "DSD"},
+	{MEDIASUBTYPE_DSDM,            "DSD"},
+	{MEDIASUBTYPE_DST,             "DST"},
+	{MEDIASUBTYPE_NELLYMOSER,      "Nelly Moser"},
+	{MEDIASUBTYPE_TAK,             "TAK"},
+	{MEDIASUBTYPE_BINKA_DCT,       "BINK"},
+	{MEDIASUBTYPE_BINKA_RDFT,      "BINK"},
+	{MEDIASUBTYPE_DOLBY_AC3_SPDIF, "S/PDIF"},
+};
+
+static const std::map<GUID, LPCSTR> subtitleguids = {
+	{MEDIASUBTYPE_UTF8,           "UTF-8"},
+	{MEDIASUBTYPE_SSA,            "SubStation Alpha"},
+	{MEDIASUBTYPE_ASS,            "Advanced SubStation Alpha"},
+	{MEDIASUBTYPE_ASS2,           "Advanced SubStation Alpha"},
+	{MEDIASUBTYPE_USF,            "Universal Subtitle Format"},
+	{MEDIASUBTYPE_VOBSUB,         "VobSub"},
+	{MEDIASUBTYPE_DVB_SUBTITLES,  "DVB"},
+	{MEDIASUBTYPE_DVD_SUBPICTURE, "DVD Subtitles"},
+	{MEDIASUBTYPE_HDMVSUB,        "PGS"},
+};
+
+#define ADDENTRY(mode) { mode, #mode },
+static const std::map<GUID, LPCSTR> dxvaguids = {
+	// GUID name from dxva.h
+	ADDENTRY(DXVA_ModeNone)
+	// GUID names from dxva2api.h
+	ADDENTRY(DXVA2_ModeMPEG2_MoComp)
+	ADDENTRY(DXVA2_ModeMPEG2_IDCT)
+	ADDENTRY(DXVA2_ModeMPEG2_VLD)
+	ADDENTRY(DXVA2_ModeMPEG1_VLD)
+	ADDENTRY(DXVA2_ModeMPEG2and1_VLD)
+	ADDENTRY(DXVA2_ModeH264_MoComp_NoFGT)
+	ADDENTRY(DXVA2_ModeH264_MoComp_FGT)
+	ADDENTRY(DXVA2_ModeH264_IDCT_NoFGT)
+	ADDENTRY(DXVA2_ModeH264_IDCT_FGT)
+	ADDENTRY(DXVA2_ModeH264_VLD_NoFGT)
+	ADDENTRY(DXVA2_ModeH264_VLD_FGT)
+	ADDENTRY(DXVA2_ModeH264_VLD_WithFMOASO_NoFGT)
+	ADDENTRY(DXVA2_ModeH264_VLD_Stereo_Progressive_NoFGT)
+	ADDENTRY(DXVA2_ModeH264_VLD_Stereo_NoFGT)
+	ADDENTRY(DXVA2_ModeH264_VLD_Multiview_NoFGT)
+	ADDENTRY(DXVA2_ModeWMV8_PostProc)
+	ADDENTRY(DXVA2_ModeWMV8_MoComp)
+	ADDENTRY(DXVA2_ModeWMV9_PostProc)
+	ADDENTRY(DXVA2_ModeWMV9_MoComp)
+	ADDENTRY(DXVA2_ModeWMV9_IDCT)
+	ADDENTRY(DXVA2_ModeVC1_PostProc)
+	ADDENTRY(DXVA2_ModeVC1_MoComp)
+	ADDENTRY(DXVA2_ModeVC1_IDCT)
+	ADDENTRY(DXVA2_ModeVC1_VLD)
+	ADDENTRY(DXVA2_ModeVC1_D2010)
+	ADDENTRY(DXVA2_NoEncrypt)
+	ADDENTRY(DXVA2_ModeMPEG4pt2_VLD_Simple)
+	ADDENTRY(DXVA2_ModeMPEG4pt2_VLD_AdvSimple_NoGMC)
+	ADDENTRY(DXVA2_ModeMPEG4pt2_VLD_AdvSimple_GMC)
+	ADDENTRY(DXVA2_ModeHEVC_VLD_Main)
+	ADDENTRY(DXVA2_ModeHEVC_VLD_Main10)
+	ADDENTRY(DXVA2_ModeVP9_VLD_Profile0)
+	ADDENTRY(DXVA2_ModeVP9_VLD_10bit_Profile2)
+	ADDENTRY(DXVA2_ModeVP8_VLD)
+};
+#undef ADDENTRY
 
 CMediaTypeEx::CMediaTypeEx()
 {
@@ -44,15 +261,15 @@ CString CMediaTypeEx::ToString(IPin* pPin)
 	// TODO
 
 	if (majortype == MEDIATYPE_DVD_ENCRYPTED_PACK) {
-		packing = _T("Encrypted MPEG2 Pack");
+		packing = L"Encrypted MPEG2 Pack";
 	} else if (majortype == MEDIATYPE_MPEG2_PACK) {
-		packing = _T("MPEG2 Pack");
+		packing = L"MPEG2 Pack";
 	} else if (majortype == MEDIATYPE_MPEG2_PES) {
-		packing = _T("MPEG2 PES");
+		packing = L"MPEG2 PES";
 	}
 
 	if (majortype == MEDIATYPE_Video || subtype == MEDIASUBTYPE_MPEG2_VIDEO) {
-		type = _T("Video");
+		type = L"Video";
 
 		BITMAPINFOHEADER bih;
 		bool fBIH = ExtractBIH(this, &bih);
@@ -66,53 +283,53 @@ CString CMediaTypeEx::ToString(IPin* pPin)
 
 		if (codec.IsEmpty()) {
 			if (formattype == FORMAT_MPEGVideo) {
-				codec = _T("MPEG1 Video");
+				codec = L"MPEG1 Video";
 			} else if (formattype == FORMAT_MPEG2_VIDEO) {
-				codec = _T("MPEG2 Video");
+				codec = L"MPEG2 Video";
 			} else if (formattype == FORMAT_DiracVideoInfo) {
-				codec = _T("Dirac Video");
+				codec = L"Dirac Video";
 			}
 		}
 
 		if (fDim) {
-			dim.Format(_T("%dx%d"), w, h);
+			dim.Format(L"%dx%d", w, h);
 			if (w*ary != h*arx) {
-				dim.AppendFormat(_T(" (%d:%d)"), arx, ary);
+				dim.AppendFormat(L" (%d:%d)", arx, ary);
 			}
 		}
 
 		if (formattype == FORMAT_VideoInfo || formattype == FORMAT_MPEGVideo) {
 			VIDEOINFOHEADER* vih = (VIDEOINFOHEADER*)pbFormat;
 			if (vih->AvgTimePerFrame) {
-				rate.Format(_T("%0.3f"), 10000000.0f / vih->AvgTimePerFrame);
-				rate.TrimRight(_T('0')); // remove trailing zeros
-				rate.TrimRight(_T('.')); // remove the trailing dot
-				rate += _T("fps ");
+				rate.Format(L"%0.3f", 10000000.0f / vih->AvgTimePerFrame);
+				rate.TrimRight('0'); // remove trailing zeros
+				rate.TrimRight('.'); // remove the trailing dot
+				rate += L"fps ";
 			}
 			if (vih->dwBitRate) {
-				rate.AppendFormat(_T("%ukbps"), vih->dwBitRate/1000);
+				rate += FormatBitrate(vih->dwBitRate);
 			}
 		} else if (formattype == FORMAT_VideoInfo2 || formattype == FORMAT_MPEG2_VIDEO || formattype == FORMAT_DiracVideoInfo) {
 			VIDEOINFOHEADER2* vih = (VIDEOINFOHEADER2*)pbFormat;
 			if (vih->AvgTimePerFrame) {
-				rate.Format(_T("%0.3f"), 10000000.0f / vih->AvgTimePerFrame);
-				rate.TrimRight(_T('0')); // remove trailing zeros
-				rate.TrimRight(_T('.')); // remove the trailing dot
-				rate += _T("fps ");
+				rate.Format(L"%0.3f", 10000000.0f / vih->AvgTimePerFrame);
+				rate.TrimRight('0'); // remove trailing zeros
+				rate.TrimRight('.'); // remove the trailing dot
+				rate += L"fps ";
 			}
 			if (vih->dwBitRate) {
-				rate.AppendFormat(_T("%ukbps"), vih->dwBitRate/1000);
+				rate += FormatBitrate(vih->dwBitRate);
 			}
 		}
 
 		rate.TrimRight();
 
 		if (subtype == MEDIASUBTYPE_DVD_SUBPICTURE) {
-			type = _T("Subtitle");
-			codec = _T("DVD Subpicture");
+			type = L"Subtitle";
+			codec = L"DVD Subpicture";
 		}
 	} else if (majortype == MEDIATYPE_Audio || subtype == MEDIASUBTYPE_DOLBY_AC3) {
-		type = _T("Audio");
+		type = L"Audio";
 
 		if (formattype == FORMAT_WaveFormatEx) {
 			WAVEFORMATEX* wfe = (WAVEFORMATEX*)Format();
@@ -121,53 +338,83 @@ CString CMediaTypeEx::ToString(IPin* pPin)
 			&& wfe->wFormatTag != WAVE_FORMAT_IEEE_FLOAT*/
 					|| subtype != GUID_NULL) {
 				codec = GetAudioCodecName(subtype, wfe->wFormatTag);
-				dim.Format(_T("%uHz"), wfe->nSamplesPerSec);
-				if (wfe->nChannels == 1) {
-					dim += _T(" mono");
-				} else if (wfe->nChannels == 2) {
-					dim += _T(" stereo");
-				} else {
-					dim.AppendFormat(_T(" %uch"), wfe->nChannels);
+				if (codec == L"DTS" && wfe->cbSize == 1) {
+					const auto profile = ((BYTE *)(wfe + 1))[0];
+					switch (profile) {
+						case DCA_PROFILE_HD_HRA:
+							codec = L"DTS-HD HRA";
+							break;
+						case DCA_PROFILE_HD_MA:
+							codec = L"DTS-HD MA";
+							break;
+						case DCA_PROFILE_EXPRESS:
+							codec = L"DTS Express";
+							break;
+					}
 				}
-				if (wfe->nAvgBytesPerSec) {
-					rate.Format(_T("%ukbps"), wfe->nAvgBytesPerSec*8/1000);
+				dim.Format(L"%uHz", wfe->nSamplesPerSec);
+				if (wfe->nChannels) {
+					DWORD layout = 0;
+					if (IsWaveFormatExtensible(wfe)) {
+						const WAVEFORMATEXTENSIBLE* wfex = (WAVEFORMATEXTENSIBLE*)wfe;
+						layout = wfex->dwChannelMask;
+					}
+					else {
+						layout = GetDefChannelMask(wfe->nChannels);
+					}
+					BYTE lfe = 0;
+					WORD nChannels = wfe->nChannels;
+					if (layout & SPEAKER_LOW_FREQUENCY) {
+						nChannels--;
+						lfe = 1;
+					}
+					dim.AppendFormat(L" %u.%u chn", nChannels, lfe);
+				}
+				if (wfe->nAvgBytesPerSec && wfe->wFormatTag != WAVE_FORMAT_OPUS) {
+					rate += FormatBitrate(wfe->nAvgBytesPerSec * 8);
 				}
 			}
 		} else if (formattype == FORMAT_VorbisFormat) {
 			VORBISFORMAT* vf = (VORBISFORMAT*)Format();
 
 			codec = GetAudioCodecName(subtype, 0);
-			dim.Format(_T("%uHz"), vf->nSamplesPerSec);
-			if (vf->nChannels == 1) {
-				dim += _T(" mono");
-			} else if (vf->nChannels == 2) {
-				dim += _T(" stereo");
-			} else {
-				dim.AppendFormat(_T(" %uch"), vf->nChannels);
+			dim.Format(L"%uHz", vf->nSamplesPerSec);
+			if (vf->nChannels) {
+				const DWORD layout = GetDefChannelMask(vf->nChannels);
+				BYTE lfe = 0;
+				WORD nChannels = vf->nChannels;
+				if (layout & SPEAKER_LOW_FREQUENCY) {
+					nChannels--;
+					lfe = 1;
+				}
+				dim.AppendFormat(L" %u.%u chn", nChannels, lfe);
 			}
 			if (vf->nAvgBitsPerSec) {
-				rate.Format(_T("%ukbps"), vf->nAvgBitsPerSec/1000);
+				rate += FormatBitrate(vf->nAvgBitsPerSec * 8);
 			}
 		} else if (formattype == FORMAT_VorbisFormat2) {
 			VORBISFORMAT2* vf = (VORBISFORMAT2*)Format();
 
 			codec = GetAudioCodecName(subtype, 0);
-			dim.Format(_T("%uHz"), vf->SamplesPerSec);
-			if (vf->Channels == 1) {
-				dim += _T(" mono");
-			} else if (vf->Channels == 2) {
-				dim += _T(" stereo");
-			} else {
-				dim.AppendFormat(_T(" %uch"), vf->Channels);
+			dim.Format(L"%uHz", vf->SamplesPerSec);
+			if (vf->Channels) {
+				const DWORD layout = GetDefChannelMask(vf->Channels);
+				BYTE lfe = 0;
+				WORD nChannels = vf->Channels;
+				if (layout & SPEAKER_LOW_FREQUENCY) {
+					nChannels--;
+					lfe = 1;
+				}
+				dim.AppendFormat(L" %u.%u chn", nChannels, lfe);
 			}
 		}
 	} else if (majortype == MEDIATYPE_Text) {
-		type = _T("Text");
+		type = L"Text";
 	} else if (majortype == MEDIATYPE_Subtitle || subtype == MEDIASUBTYPE_DVD_SUBPICTURE) {
-		type = _T("Subtitle");
+		type = L"Subtitle";
 		codec = GetSubtitleCodecName(subtype);
 	} else {
-		type = _T("Unknown");
+		type = L"Unknown";
 	}
 
 	if (CComQIPtr<IMediaSeeking> pMS = pPin) {
@@ -180,32 +427,32 @@ CString CMediaTypeEx::ToString(IPin* pPin)
 			rtDur /= 60;
 			int h = (int)rtDur;
 			if (h) {
-				dur.Format(_T("%d:%02d:%02d"), h, m, s);
+				dur.Format(L"%d:%02d:%02d", h, m, s);
 			} else if (m) {
-				dur.Format(_T("%02d:%02d"), m, s);
+				dur.Format(L"%02d:%02d", m, s);
 			} else if (s) {
-				dur.Format(_T("%ds"), s);
+				dur.Format(L"%ds", s);
 			}
 		}
 	}
 
 	CString str;
 	if (!codec.IsEmpty()) {
-		str += codec + _T(" ");
+		str += codec + L" ";
 	}
 	if (!dim.IsEmpty()) {
-		str += dim + _T(" ");
+		str += dim + L" ";
 	}
 	if (!rate.IsEmpty()) {
-		str += rate + _T(" ");
+		str += rate + L" ";
 	}
 	if (!dur.IsEmpty()) {
-		str += dur + _T(" ");
+		str += dur + L" ";
 	}
-	str.Trim(_T(" ,"));
+	str.Trim(L" ,");
 
 	if (!str.IsEmpty()) {
-		str = type + _T(": ") + str;
+		str = type + L": " + str;
 	} else {
 		str = type;
 	}
@@ -217,44 +464,8 @@ CString CMediaTypeEx::GetVideoCodecName(const GUID& subtype, DWORD biCompression
 {
 	CString str;
 
-	static CAtlMap<DWORD, CString> names;
-	if (names.IsEmpty()) {
-		names['WMV1'] = _T("Windows Media Video 7");
-		names['WMV2'] = _T("Windows Media Video 8");
-		names['WMV3'] = _T("Windows Media Video 9");
-		names['DIV3'] = _T("DivX 3");
-		names['MP43'] = _T("MSMPEG4v3");
-		names['MP42'] = _T("MSMPEG4v2");
-		names['MP41'] = _T("MSMPEG4v1");
-		names['DX30'] = _T("DivX 3");
-		names['DX50'] = _T("DivX 5");
-		names['DIVX'] = _T("DivX 6");
-		names['XVID'] = _T("Xvid");
-		names['MP4V'] = _T("MPEG4 Video");
-		names['AVC1'] = _T("H.264/AVC");
-		names['H264'] = _T("H.264/AVC");
-		names['RV10'] = _T("RealVideo 1");
-		names['RV20'] = _T("RealVideo 2");
-		names['RV30'] = _T("RealVideo 3");
-		names['RV40'] = _T("RealVideo 4");
-		names['FLV1'] = _T("Flash Video 1");
-		names['FLV4'] = _T("Flash Video 4");
-		names['VP50'] = _T("On2 VP5");
-		names['VP60'] = _T("On2 VP6");
-		names['SVQ3'] = _T("SVQ3");
-		names['SVQ1'] = _T("SVQ1");
-		names['H263'] = _T("H263");
-		names['DRAC'] = _T("Dirac");
-		names['WVC1'] = _T("VC-1");
-		names['THEO'] = _T("Theora");
-		names['HVC1'] = _T("HEVC");
-		names['HM91'] = _T("HEVC(HM9.1)");
-		names['HM10'] = _T("HEVC(HM10)");
-		names['HM12'] = _T("HEVC(HM12)");
-	}
-
 	if (biCompression != BI_RGB && biCompression != BI_BITFIELDS) {
-		DWORD fourcc = FCC(biCompression);
+		DWORD fourcc = biCompression;
 		BYTE* b = (BYTE*)&fourcc;
 
 		for (size_t i = 0; i < 4; i++) {
@@ -263,34 +474,41 @@ CString CMediaTypeEx::GetVideoCodecName(const GUID& subtype, DWORD biCompression
 			}
 		}
 
-		if (!names.Lookup(fourcc, str)) {
+		auto it = vfourcs.find(fourcc);
+		if (it != vfourcs.cend()) {
+			str = (*it).second;
+		} else {
 			if (subtype == MEDIASUBTYPE_DiracVideo) {
-				str = _T("Dirac Video");
+				str = L"Dirac Video";
+			} else if (subtype == MEDIASUBTYPE_MP4V ||
+					   subtype == MEDIASUBTYPE_mp4v) {
+				str = L"MPEG4 Video";
 			} else if (subtype == MEDIASUBTYPE_apch ||
 					   subtype == MEDIASUBTYPE_apcn ||
 					   subtype == MEDIASUBTYPE_apcs ||
 					   subtype == MEDIASUBTYPE_apco ||
-					   subtype == MEDIASUBTYPE_ap4h) {
-				str.Format(_T("ProRes Video (%4.4hs)"), &biCompression);
+					   subtype == MEDIASUBTYPE_ap4h ||
+					   subtype == MEDIASUBTYPE_ap4x) {
+				str.Format(L"ProRes Video (%4.4hs)", &biCompression);
 			} else if (biCompression < 256) {
-				str.Format(_T("%u"), biCompression);
+				str.Format(L"%u", biCompression);
 			} else {
-				str.Format(_T("%4.4hs"), &biCompression);
+				str.Format(L"%4.4hs", &biCompression);
 			}
 		}
 	} else {
 		if (subtype == MEDIASUBTYPE_RGB32)
-			str = _T("RGB32");
+			str = L"RGB32";
 		else if (subtype == MEDIASUBTYPE_RGB24)
-			str = _T("RGB24");
+			str = L"RGB24";
 		else if (subtype == MEDIASUBTYPE_RGB555)
-			str = _T("RGB555");
+			str = L"RGB555";
 		else if (subtype == MEDIASUBTYPE_RGB565)
-			str = _T("RGB565");
+			str = L"RGB565";
 		else if (subtype == MEDIASUBTYPE_ARGB32)
-			str = _T("ARGB32");
+			str = L"ARGB32";
 		else if (subtype == MEDIASUBTYPE_RGB8)
-			str = _T("RGB8");
+			str = L"RGB8";
 	}
 
 	return str;
@@ -300,129 +518,15 @@ CString CMediaTypeEx::GetAudioCodecName(const GUID& subtype, WORD wFormatTag)
 {
 	CString str;
 
-	static CAtlMap<WORD, CString> names;
-	if (names.IsEmpty()) {
-		// MMReg.h
-		names[WAVE_FORMAT_ADPCM]                 = _T("MS ADPCM");
-		names[WAVE_FORMAT_IEEE_FLOAT]            = _T("IEEE Float");
-		names[WAVE_FORMAT_ALAW]                  = _T("aLaw");
-		names[WAVE_FORMAT_MULAW]                 = _T("muLaw");
-		names[WAVE_FORMAT_DTS]                   = _T("DTS");
-		names[WAVE_FORMAT_DRM]                   = _T("DRM");
-		names[WAVE_FORMAT_WMAVOICE9]             = _T("WMA Voice");
-		names[WAVE_FORMAT_WMAVOICE10]            = _T("WMA Voice");
-		names[WAVE_FORMAT_OKI_ADPCM]             = _T("OKI ADPCM");
-		names[WAVE_FORMAT_IMA_ADPCM]             = _T("IMA ADPCM");
-		names[WAVE_FORMAT_MEDIASPACE_ADPCM]      = _T("Mediaspace ADPCM");
-		names[WAVE_FORMAT_SIERRA_ADPCM]          = _T("Sierra ADPCM");
-		names[WAVE_FORMAT_G723_ADPCM]            = _T("G723 ADPCM");
-		names[WAVE_FORMAT_DIALOGIC_OKI_ADPCM]    = _T("Dialogic OKI ADPCM");
-		names[WAVE_FORMAT_MEDIAVISION_ADPCM]     = _T("Media Vision ADPCM");
-		names[WAVE_FORMAT_YAMAHA_ADPCM]          = _T("Yamaha ADPCM");
-		names[WAVE_FORMAT_DSPGROUP_TRUESPEECH]   = _T("DSP Group Truespeech");
-		names[WAVE_FORMAT_DOLBY_AC2]             = _T("Dolby AC2");
-		names[WAVE_FORMAT_GSM610]                = _T("GSM610");
-		names[WAVE_FORMAT_MSNAUDIO]              = _T("MSN Audio");
-		names[WAVE_FORMAT_ANTEX_ADPCME]          = _T("Antex ADPCME");
-		names[WAVE_FORMAT_CS_IMAADPCM]           = _T("Crystal Semiconductor IMA ADPCM");
-		names[WAVE_FORMAT_ROCKWELL_ADPCM]        = _T("Rockwell ADPCM");
-		names[WAVE_FORMAT_ROCKWELL_DIGITALK]     = _T("Rockwell Digitalk");
-		names[WAVE_FORMAT_G721_ADPCM]            = _T("G721");
-		names[WAVE_FORMAT_G728_CELP]             = _T("G728");
-		names[WAVE_FORMAT_MSG723]                = _T("MSG723");
-		names[WAVE_FORMAT_MPEG]                  = _T("MPEG Audio");
-		names[WAVE_FORMAT_MPEGLAYER3]            = _T("MP3");
-		names[WAVE_FORMAT_LUCENT_G723]           = _T("Lucent G723");
-		names[WAVE_FORMAT_VOXWARE]               = _T("Voxware");
-		names[WAVE_FORMAT_G726_ADPCM]            = _T("G726");
-		names[WAVE_FORMAT_G722_ADPCM]            = _T("G722");
-		names[WAVE_FORMAT_G729A]                 = _T("G729A");
-		names[WAVE_FORMAT_MEDIASONIC_G723]       = _T("MediaSonic G723");
-		names[WAVE_FORMAT_ZYXEL_ADPCM]           = _T("ZyXEL ADPCM");
-		names[WAVE_FORMAT_RAW_AAC1]              = _T("AAC");
-		names[WAVE_FORMAT_RHETOREX_ADPCM]        = _T("Rhetorex ADPCM");
-		names[WAVE_FORMAT_VIVO_G723]             = _T("Vivo G723");
-		names[WAVE_FORMAT_VIVO_SIREN]            = _T("Vivo Siren");
-		names[WAVE_FORMAT_DIGITAL_G723]          = _T("Digital G723");
-		names[WAVE_FORMAT_SANYO_LD_ADPCM]        = _T("Sanyo LD ADPCM");
-		names[WAVE_FORMAT_MSAUDIO1]              = _T("WMA 1");
-		names[WAVE_FORMAT_WMAUDIO2]              = _T("WMA 2");
-		names[WAVE_FORMAT_WMAUDIO3]              = _T("WMA Pro");
-		names[WAVE_FORMAT_WMAUDIO_LOSSLESS]      = _T("WMA Lossless");
-		names[WAVE_FORMAT_CREATIVE_ADPCM]        = _T("Creative ADPCM");
-		names[WAVE_FORMAT_CREATIVE_FASTSPEECH8]  = _T("Creative Fastspeech 8");
-		names[WAVE_FORMAT_CREATIVE_FASTSPEECH10] = _T("Creative Fastspeech 10");
-		names[WAVE_FORMAT_UHER_ADPCM]            = _T("UHER ADPCM");
-		names[WAVE_FORMAT_DTS2]                  = _T("DTS");
-		names[WAVE_FORMAT_DOLBY_AC3_SPDIF]       = _T("S/PDIF");
-		// other
-		names[WAVE_FORMAT_DOLBY_AC3]             = _T("Dolby AC3");
-		names[WAVE_FORMAT_LATM_AAC]              = _T("AAC(LATM)");
-		names[WAVE_FORMAT_FLAC]                  = _T("FLAC");
-		names[WAVE_FORMAT_TTA1]                  = _T("TTA");
-		names[WAVE_FORMAT_WAVPACK4]              = _T("WavPack");
-		names[WAVE_FORMAT_14_4]                  = _T("RealAudio 14.4");
-		names[WAVE_FORMAT_28_8]                  = _T("RealAudio 28.8");
-		names[WAVE_FORMAT_ATRC]                  = _T("RealAudio ATRC");
-		names[WAVE_FORMAT_COOK]                  = _T("RealAudio COOK");
-		names[WAVE_FORMAT_DNET]                  = _T("RealAudio DNET");
-		names[WAVE_FORMAT_RAAC]                  = _T("RealAudio RAAC");
-		names[WAVE_FORMAT_RACP]                  = _T("RealAudio RACP");
-		names[WAVE_FORMAT_SIPR]                  = _T("RealAudio SIPR");
-		names[WAVE_FORMAT_PS2_PCM]               = _T("PS2 PCM");
-		names[WAVE_FORMAT_PS2_ADPCM]             = _T("PS2 ADPCM");
-		names[WAVE_FORMAT_SPEEX]                 = _T("Speex");
-		names[WAVE_FORMAT_ADX_ADPCM]             = _T("ADX ADPCM");
-	}
-
-	if (!names.Lookup(wFormatTag, str)) {
-		// for wFormatTag equal to WAVE_FORMAT_UNKNOWN, WAVE_FORMAT_PCM, WAVE_FORMAT_EXTENSIBLE and other.
-		static CAtlMap<GUID, CString> guidnames;
-		if (guidnames.IsEmpty()) {
-			guidnames[MEDIASUBTYPE_PCM]				= L"PCM";
-			guidnames[MEDIASUBTYPE_IEEE_FLOAT]		= L"IEEE Float";
-			guidnames[MEDIASUBTYPE_DVD_LPCM_AUDIO]	= L"PCM";
-			guidnames[MEDIASUBTYPE_HDMV_LPCM_AUDIO]	= L"LPCM";
-			guidnames[MEDIASUBTYPE_Vorbis]			= L"Vorbis (deprecated)";
-			guidnames[MEDIASUBTYPE_Vorbis2]			= L"Vorbis";
-			guidnames[MEDIASUBTYPE_MP4A]			= L"MPEG4 Audio";
-			guidnames[MEDIASUBTYPE_FLAC_FRAMED]		= L"FLAC (framed)";
-			guidnames[MEDIASUBTYPE_DOLBY_AC3]		= L"Dolby AC3";
-			guidnames[MEDIASUBTYPE_DOLBY_DDPLUS]	= L"DD+";
-			guidnames[MEDIASUBTYPE_DOLBY_TRUEHD]	= L"TrueHD";
-			guidnames[MEDIASUBTYPE_DTS]				= L"DTS";
-			guidnames[MEDIASUBTYPE_MLP]				= L"MLP";
-			guidnames[MEDIASUBTYPE_ALAC]			= L"ALAC";
-			guidnames[MEDIASUBTYPE_PCM_NONE]		= L"QT PCM";
-			guidnames[MEDIASUBTYPE_PCM_RAW]			= L"QT PCM";
-			guidnames[MEDIASUBTYPE_PCM_TWOS]		= L"PCM";
-			guidnames[MEDIASUBTYPE_PCM_SOWT]		= L"QT PCM";
-			guidnames[MEDIASUBTYPE_PCM_IN24]		= L"PCM";
-			guidnames[MEDIASUBTYPE_PCM_IN32]		= L"PCM";
-			guidnames[MEDIASUBTYPE_PCM_FL32]		= L"QT PCM";
-			guidnames[MEDIASUBTYPE_PCM_FL64]		= L"QT PCM";
-			guidnames[MEDIASUBTYPE_IMA4]			= L"ADPCM";
-			guidnames[MEDIASUBTYPE_ADPCM_SWF]		= L"ADPCM";
-			guidnames[MEDIASUBTYPE_IMA_AMV]			= L"ADPCM";
-			guidnames[MEDIASUBTYPE_ALS]				= L"ALS";
-			guidnames[MEDIASUBTYPE_QDM2]			= L"QDM2";
-			guidnames[MEDIASUBTYPE_RoQA]			= L"ROQA";
-			guidnames[MEDIASUBTYPE_APE]				= L"APE";
-			guidnames[MEDIASUBTYPE_AMR]				= L"AMR";
-			guidnames[MEDIASUBTYPE_SAMR]			= L"AMR";
-			guidnames[MEDIASUBTYPE_SAWB]			= L"AMR";
-			guidnames[MEDIASUBTYPE_OPUS]			= L"Opus";
-			guidnames[MEDIASUBTYPE_BINKA_DCT]		= L"BINK DCT";
-			guidnames[MEDIASUBTYPE_AAC_ADTS]		= L"AAC";
-			guidnames[MEDIASUBTYPE_DSD1]			= L"DSD";
-			guidnames[MEDIASUBTYPE_DSD8]			= L"DSD";
-			guidnames[MEDIASUBTYPE_DSDL]			= L"DSD";
-			guidnames[MEDIASUBTYPE_DSDM]			= L"DSD";
-			guidnames[MEDIASUBTYPE_NELLYMOSER]		= L"Nelly Moser";
-		}
-
-		if (!guidnames.Lookup(subtype, str)) {
-			str.Format(_T("0x%04x"), wFormatTag);
+	auto it1 = aformattags.find(wFormatTag);
+	if (it1 != aformattags.cend()) {
+		str = (*it1).second;
+	} else {
+		auto it2 = audioguids.find(subtype);
+		if (it2 != audioguids.cend()) {
+			str = (*it2).second;
+		} else {
+			str.Format(L"0x%04x", wFormatTag);
 		}
 	}
 
@@ -433,109 +537,67 @@ CString CMediaTypeEx::GetSubtitleCodecName(const GUID& subtype)
 {
 	CString str;
 
-	static CAtlMap<GUID, CString> names;
-	if (names.IsEmpty()) {
-		names[MEDIASUBTYPE_UTF8]			= _T("UTF-8");
-		names[MEDIASUBTYPE_SSA]				= _T("SubStation Alpha");
-		names[MEDIASUBTYPE_ASS]				= _T("Advanced SubStation Alpha");
-		names[MEDIASUBTYPE_ASS2]			= _T("Advanced SubStation Alpha");
-		names[MEDIASUBTYPE_USF]				= _T("Universal Subtitle Format");
-		names[MEDIASUBTYPE_VOBSUB]			= _T("VobSub");
-		names[MEDIASUBTYPE_DVB_SUBTITLES]	= _T("DVB");
-		names[MEDIASUBTYPE_DVD_SUBPICTURE]	= _T("DVD Subtitles");
-		names[MEDIASUBTYPE_HDMVSUB]			= _T("PGS");
-	}
-
-	if (names.Lookup(subtype, str)) {
-
+	auto it = subtitleguids.find(subtype);
+	if (it != subtitleguids.cend()) {
+		str = (*it).second;
 	}
 
 	return str;
 }
 
-#define ADDENTRY(mode) DXVA_names[mode] = #mode
 CString GetGUIDString(const GUID& guid)
 {
-	static CAtlMap<GUID, CHAR*> DXVA_names;
-	{
-		// GUID names from dxva.h
-		ADDENTRY(DXVA_ModeNone);
-		ADDENTRY(DXVA_ModeH261_A);
-		ADDENTRY(DXVA_ModeH261_B);
-		ADDENTRY(DXVA_ModeH263_A);
-		ADDENTRY(DXVA_ModeH263_B);
-		ADDENTRY(DXVA_ModeH263_C);
-		ADDENTRY(DXVA_ModeH263_D);
-		ADDENTRY(DXVA_ModeH263_E);
-		ADDENTRY(DXVA_ModeH263_F);
-		ADDENTRY(DXVA_ModeMPEG1_A);
-		ADDENTRY(DXVA_ModeMPEG2_A);
-		ADDENTRY(DXVA_ModeMPEG2_B);
-		ADDENTRY(DXVA_ModeMPEG2_C);
-		ADDENTRY(DXVA_ModeMPEG2_D);
-		ADDENTRY(DXVA_ModeH264_MoComp_NoFGT);
-		ADDENTRY(DXVA_ModeH264_MoComp_FGT);
-		ADDENTRY(DXVA_ModeH264_IDCT_NoFGT);
-		ADDENTRY(DXVA_ModeH264_IDCT_FGT);
-		ADDENTRY(DXVA_ModeH264_VLD_NoFGT);
-		ADDENTRY(DXVA_ModeH264_VLD_FGT);
-		ADDENTRY(DXVA_ModeWMV8_PostProc);
-		ADDENTRY(DXVA_ModeWMV8_MoComp);
-		ADDENTRY(DXVA_ModeWMV9_PostProc);
-		ADDENTRY(DXVA_ModeWMV9_MoComp);
-		ADDENTRY(DXVA_ModeWMV9_IDCT);
-		ADDENTRY(DXVA_ModeVC1_PostProc);
-		ADDENTRY(DXVA_ModeVC1_MoComp);
-		ADDENTRY(DXVA_ModeVC1_IDCT);
-		ADDENTRY(DXVA_ModeVC1_VLD);
-		ADDENTRY(DXVA_NoEncrypt);
-
-		// GUID names from dxva2api.h
-		ADDENTRY(DXVA2_ModeMPEG2_MoComp);
-		ADDENTRY(DXVA2_ModeMPEG2_IDCT);
-		ADDENTRY(DXVA2_ModeMPEG2_VLD);
-		//ADDENTRY(DXVA2_ModeH264_MoComp_NoFGT);
-		//ADDENTRY(DXVA2_ModeH264_MoComp_FGT);
-		//ADDENTRY(DXVA2_ModeH264_IDCT_NoFGT);
-		//ADDENTRY(DXVA2_ModeH264_IDCT_FGT);
-		//ADDENTRY(DXVA2_ModeH264_VLD_NoFGT);
-		//ADDENTRY(DXVA2_ModeH264_VLD_FGT);
-		//ADDENTRY(DXVA2_ModeWMV8_PostProc);
-		//ADDENTRY(DXVA2_ModeWMV8_MoComp);
-		//ADDENTRY(DXVA2_ModeWMV9_PostProc);
-		//ADDENTRY(DXVA2_ModeWMV9_MoComp);
-		//ADDENTRY(DXVA2_ModeWMV9_IDCT);
-		//ADDENTRY(DXVA2_ModeVC1_PostProc);
-		//ADDENTRY(DXVA2_ModeVC1_MoComp);
-		//ADDENTRY(DXVA2_ModeVC1_IDCT);
-		//ADDENTRY(DXVA2_ModeVC1_VLD);
-		//ADDENTRY(DXVA2_NoEncrypt);
-	}
-
 	// to prevent print TIME_FORMAT_NONE for GUID_NULL
 	if (guid == GUID_NULL) {
-		return _T("GUID_NULL");
+		return L"GUID_NULL";
 	}
 
-	CHAR* guidStr = GuidNames[guid]; // GUID names from uuids.h
+	const CHAR* guidStr = GuidNames[guid]; // GUID names from uuids.h
+
 	if (strcmp(guidStr, "Unknown GUID Name") == 0) {
 		guidStr = m_GuidNames[guid]; // GUID names from moreuuids.h
 	}
+
 	if (strcmp(guidStr, "Unknown GUID Name") == 0) {
-		CHAR* str;
-		if (DXVA_names.Lookup(guid, str)) {
-			guidStr = str;
+
+		auto it = dxvaguids.find(guid);
+		if (it != dxvaguids.cend()) {
+			guidStr = (*it).second;
+		}
+		else if (memcmp(&guid.Data2, &MEDIASUBTYPE_YUY2.Data2, sizeof(GUID)- sizeof(GUID::Data1)) == 0) {
+			// GUID like {xxxxxxxx-0000-0010-8000-00AA00389B71}
+
+			switch (guid.Data1) {
+			case WAVE_FORMAT_ADPCM:         guidStr = "MEDIASUBTYPE_MS_ADPCM"; break;
+			case WAVE_FORMAT_GSM610:        guidStr = "MEDIASUBTYPE_GSM610"; break;
+			case WAVE_FORMAT_MPEG_ADTS_AAC: guidStr = "MEDIASUBTYPE_MPEG_ADTS_AAC"; break;
+			case WAVE_FORMAT_MPEG_RAW_AAC:  guidStr = "MEDIASUBTYPE_MPEG_RAW_AAC"; break;
+			case WAVE_FORMAT_MPEG_LOAS:     guidStr = "MEDIASUBTYPE_MPEG_LOAS"; break;
+			case WAVE_FORMAT_MPEG_HEAAC:    guidStr = "MEDIASUBTYPE_MPEG_HEAAC"; break;
+			default:
+				return L"MEDIASUBTYPE_" + FourccToWStr(guid.Data1);
+			}
 		}
 	}
 
-	return CString(guidStr);
+	return CString(guidStr);;
 }
 
-void CMediaTypeEx::Dump(CAtlList<CString>& sl)
+CString GetGUIDString2(const GUID& guid)
+{
+	CString ret = GetGUIDString(guid);
+	if (ret == L"Unknown GUID Name") {
+		ret.AppendFormat(L" %s", CStringFromGUID(guid));
+	}
+
+	return ret;
+}
+
+void CMediaTypeEx::Dump(std::list<CString>& sl)
 {
 	CString str;
 
-	sl.RemoveAll();
+	sl.clear();
 
 	ULONG fmtsize = 0;
 
@@ -543,32 +605,32 @@ void CMediaTypeEx::Dump(CAtlList<CString>& sl)
 	CString sub = CStringFromGUID(subtype);
 	CString format = CStringFromGUID(formattype);
 
-	sl.AddTail(ToString());
-	sl.AddTail(_T(""));
+	sl.emplace_back(ToString());
+	sl.emplace_back(L"");
 
-	sl.AddTail(_T("AM_MEDIA_TYPE: "));
-	str.Format(_T("majortype: %s %s"), GetGUIDString(majortype), major);
-	sl.AddTail(str);
+	sl.emplace_back(L"AM_MEDIA_TYPE: ");
+	str.Format(L"majortype: %s %s", GetGUIDString(majortype), major);
+	sl.emplace_back(str);
 	if (majortype == MEDIATYPE_Video && subtype == FOURCCMap(BI_RLE8)) { // fake subtype for RLE 8-bit
-		str.Format(_T("subtype: BI_RLE8 %s"), sub);
+		str.Format(L"subtype: BI_RLE8 %s", sub);
 	} else if (majortype == MEDIATYPE_Video && subtype == FOURCCMap(BI_RLE4)) { // fake subtype for RLE 4-bit
-		str.Format(_T("subtype: BI_RLE4 %s"), sub);
+		str.Format(L"subtype: BI_RLE4 %s", sub);
 	} else {
-		str.Format(_T("subtype: %s %s"), GetGUIDString(subtype), sub);
+		str.Format(L"subtype: %s %s", GetGUIDString(subtype), sub);
 	}
-	sl.AddTail(str);
-	str.Format(_T("formattype: %s %s"), GetGUIDString(formattype), format);
-	sl.AddTail(str);
-	str.Format(_T("bFixedSizeSamples: %d"), bFixedSizeSamples);
-	sl.AddTail(str);
-	str.Format(_T("bTemporalCompression: %d"), bTemporalCompression);
-	sl.AddTail(str);
-	str.Format(_T("lSampleSize: %u"), lSampleSize);
-	sl.AddTail(str);
-	str.Format(_T("cbFormat: %u"), cbFormat);
-	sl.AddTail(str);
+	sl.emplace_back(str);
+	str.Format(L"formattype: %s %s", GetGUIDString(formattype), format);
+	sl.emplace_back(str);
+	str.Format(L"bFixedSizeSamples: %d", bFixedSizeSamples);
+	sl.emplace_back(str);
+	str.Format(L"bTemporalCompression: %d", bTemporalCompression);
+	sl.emplace_back(str);
+	str.Format(L"lSampleSize: %u", lSampleSize);
+	sl.emplace_back(str);
+	str.Format(L"cbFormat: %u", cbFormat);
+	sl.emplace_back(str);
 
-	sl.AddTail(_T(""));
+	sl.emplace_back(L"");
 
 	if (formattype == FORMAT_VideoInfo || formattype == FORMAT_VideoInfo2
 			|| formattype == FORMAT_MPEGVideo || formattype == FORMAT_MPEG2_VIDEO) {
@@ -583,146 +645,146 @@ void CMediaTypeEx::Dump(CAtlList<CString>& sl)
 		VIDEOINFOHEADER& vih = *(VIDEOINFOHEADER*)pbFormat;
 		BITMAPINFOHEADER* bih = &vih.bmiHeader;
 
-		sl.AddTail(_T("VIDEOINFOHEADER:"));
-		str.Format(_T("rcSource: (%d,%d)-(%d,%d)"), vih.rcSource.left, vih.rcSource.top, vih.rcSource.right, vih.rcSource.bottom);
-		sl.AddTail(str);
-		str.Format(_T("rcTarget: (%d,%d)-(%d,%d)"), vih.rcTarget.left, vih.rcTarget.top, vih.rcTarget.right, vih.rcTarget.bottom);
-		sl.AddTail(str);
-		str.Format(_T("dwBitRate: %u"), vih.dwBitRate);
-		sl.AddTail(str);
-		str.Format(_T("dwBitErrorRate: %u"), vih.dwBitErrorRate);
-		sl.AddTail(str);
-		str.Format(_T("AvgTimePerFrame: %I64d"), vih.AvgTimePerFrame);
-		sl.AddTail(str);
+		sl.emplace_back(L"VIDEOINFOHEADER:");
+		str.Format(L"rcSource: (%d,%d)-(%d,%d)", vih.rcSource.left, vih.rcSource.top, vih.rcSource.right, vih.rcSource.bottom);
+		sl.emplace_back(str);
+		str.Format(L"rcTarget: (%d,%d)-(%d,%d)", vih.rcTarget.left, vih.rcTarget.top, vih.rcTarget.right, vih.rcTarget.bottom);
+		sl.emplace_back(str);
+		str.Format(L"dwBitRate: %u", vih.dwBitRate);
+		sl.emplace_back(str);
+		str.Format(L"dwBitErrorRate: %u", vih.dwBitErrorRate);
+		sl.emplace_back(str);
+		str.Format(L"AvgTimePerFrame: %I64d", vih.AvgTimePerFrame);
+		if (vih.AvgTimePerFrame > 0) {
+			str.AppendFormat(L" (%.3f fps)", 10000000.0 / vih.AvgTimePerFrame);
+		}
+		sl.emplace_back(str);
 
-		sl.AddTail(_T(""));
+		sl.emplace_back(L"");
 
 		if (formattype == FORMAT_VideoInfo2 || formattype == FORMAT_MPEG2_VIDEO) {
 			VIDEOINFOHEADER2& vih2 = *(VIDEOINFOHEADER2*)pbFormat;
 			bih = &vih2.bmiHeader;
 
-			sl.AddTail(_T("VIDEOINFOHEADER2:"));
-			str.Format(_T("dwInterlaceFlags: 0x%08x"), vih2.dwInterlaceFlags);
-			sl.AddTail(str);
-			str.Format(_T("dwCopyProtectFlags: 0x%08x"), vih2.dwCopyProtectFlags);
-			sl.AddTail(str);
-			str.Format(_T("dwPictAspectRatioX: %u"), vih2.dwPictAspectRatioX);
-			sl.AddTail(str);
-			str.Format(_T("dwPictAspectRatioY: %u"), vih2.dwPictAspectRatioY);
-			sl.AddTail(str);
-			str.Format(_T("dwControlFlags: 0x%08x"), vih2.dwControlFlags);
-			sl.AddTail(str);
+			sl.emplace_back(L"VIDEOINFOHEADER2:");
+			str.Format(L"dwInterlaceFlags: 0x%08x", vih2.dwInterlaceFlags);
+			sl.emplace_back(str);
+			str.Format(L"dwCopyProtectFlags: 0x%08x", vih2.dwCopyProtectFlags);
+			sl.emplace_back(str);
+			str.Format(L"dwPictAspectRatioX: %u", vih2.dwPictAspectRatioX);
+			sl.emplace_back(str);
+			str.Format(L"dwPictAspectRatioY: %u", vih2.dwPictAspectRatioY);
+			sl.emplace_back(str);
+			str.Format(L"dwControlFlags: 0x%08x", vih2.dwControlFlags);
+			sl.emplace_back(str);
 			if (vih2.dwControlFlags & (AMCONTROL_USED | AMCONTROL_COLORINFO_PRESENT)) {
 				// http://msdn.microsoft.com/en-us/library/windows/desktop/ms698715%28v=vs.85%29.aspx
-				const LPCSTR nominalrange[] = { NULL, "0-255", "16-235", "48-208" };
-				const LPCSTR transfermatrix[] = { NULL, "BT.709", "BT.601", "SMPTE 240M", "BT.2020", NULL, NULL, "YCgCo" };
-				const LPCSTR lighting[] = { NULL, "bright", "office", "dim", "dark" };
-				const LPCSTR primaries[] = { NULL, "Reserved", "BT.709", "BT.470-4 System M", "BT.470-4 System B,G",
-					"SMPTE 170M", "SMPTE 240M", "EBU Tech. 3213", "SMPTE", "BT.2020" };
-				const LPCSTR transfunc[] = { NULL, "Linear RGB", "1.8 gamma", "2.0 gamma", "2.2 gamma", "BT.709", "SMPTE 240M",
-					"sRGB", "2.8 gamma", "Log100", "Log316", "Symmetric BT.709", NULL, NULL, NULL, NULL, "SMPTE ST 2084" };
+				const LPCSTR nominalrange[] = { nullptr, "0-255", "16-235", "48-208" };
+				const LPCSTR transfermatrix[] = { nullptr, "BT.709", "BT.601", "SMPTE 240M", "BT.2020", nullptr, nullptr, "YCgCo" };
+				const LPCSTR lighting[] = { nullptr, "bright", "office", "dim", "dark" };
+				const LPCSTR primaries[] = { nullptr, "Reserved", "BT.709", "BT.470-4 System M", "BT.470-4 System B,G",
+					"SMPTE 170M", "SMPTE 240M", "EBU Tech. 3213", "SMPTE C", "BT.2020" };
+				const LPCSTR transfunc[] = { nullptr, "Linear RGB", "1.8 gamma", "2.0 gamma", "2.2 gamma", "BT.709", "SMPTE 240M",
+					"sRGB", "2.8 gamma", "Log100", "Log316", "Symmetric BT.709", "Constant luminance BT.2020", "Non-constant luminance BT.2020",
+					"2.6 gamma", "SMPTE ST 2084 (PQ)", "ARIB STD-B67 (HLG)"};
 
 #define ADD_PARAM_DESC(str, parameter, descs) if (parameter < _countof(descs) && descs[parameter]) str.AppendFormat(L" (%hS)", descs[parameter])
 
 				DXVA2_ExtendedFormat exfmt;
 				exfmt.value = vih2.dwControlFlags;
 
-				str.Format(_T("- VideoChromaSubsampling: %u"), exfmt.VideoChromaSubsampling);
-				sl.AddTail(str);
+				str.Format(L"- VideoChromaSubsampling: %u", exfmt.VideoChromaSubsampling);
+				sl.emplace_back(str);
 
-				str.Format(_T("- NominalRange          : %u"), exfmt.NominalRange);
+				str.Format(L"- NominalRange          : %u", exfmt.NominalRange);
 				ADD_PARAM_DESC(str, exfmt.NominalRange, nominalrange);
-				sl.AddTail(str);
+				sl.emplace_back(str);
 
-				str.Format(_T("- VideoTransferMatrix   : %u"), exfmt.VideoTransferMatrix);
+				str.Format(L"- VideoTransferMatrix   : %u", exfmt.VideoTransferMatrix);
 				ADD_PARAM_DESC(str, exfmt.VideoTransferMatrix, transfermatrix);
-				sl.AddTail(str);
+				sl.emplace_back(str);
 
-				str.Format(_T("- VideoLighting         : %u"), exfmt.VideoLighting);
+				str.Format(L"- VideoLighting         : %u", exfmt.VideoLighting);
 				ADD_PARAM_DESC(str, exfmt.VideoLighting, lighting);
-				sl.AddTail(str);
+				sl.emplace_back(str);
 
-				str.Format(_T("- VideoPrimaries        : %u"), exfmt.VideoPrimaries);
+				str.Format(L"- VideoPrimaries        : %u", exfmt.VideoPrimaries);
 				ADD_PARAM_DESC(str, exfmt.VideoPrimaries, primaries);
-				sl.AddTail(str);
+				sl.emplace_back(str);
 
-				str.Format(_T("- VideoTransferFunction : %u"), exfmt.VideoTransferFunction);
+				str.Format(L"- VideoTransferFunction : %u", exfmt.VideoTransferFunction);
 				ADD_PARAM_DESC(str, exfmt.VideoTransferFunction, transfunc);
-				sl.AddTail(str);
+				sl.emplace_back(str);
 			}
-			str.Format(_T("dwReserved2: 0x%08x"), vih2.dwReserved2);
-			sl.AddTail(str);
+			str.Format(L"dwReserved2: 0x%08x", vih2.dwReserved2);
+			sl.emplace_back(str);
 
-			sl.AddTail(_T(""));
+			sl.emplace_back(L"");
 		}
 
 		if (formattype == FORMAT_MPEGVideo) {
 			MPEG1VIDEOINFO& mvih = *(MPEG1VIDEOINFO*)pbFormat;
 
-			sl.AddTail(_T("MPEG1VIDEOINFO:"));
-			str.Format(_T("dwStartTimeCode: %u"), mvih.dwStartTimeCode);
-			sl.AddTail(str);
-			str.Format(_T("cbSequenceHeader: %u"), mvih.cbSequenceHeader);
-			sl.AddTail(str);
+			sl.emplace_back(L"MPEG1VIDEOINFO:");
+			str.Format(L"dwStartTimeCode: %u", mvih.dwStartTimeCode);
+			sl.emplace_back(str);
+			str.Format(L"cbSequenceHeader: %u", mvih.cbSequenceHeader);
+			sl.emplace_back(str);
 
-			sl.AddTail(_T(""));
+			sl.emplace_back(L"");
 		} else if (formattype == FORMAT_MPEG2_VIDEO) {
 			MPEG2VIDEOINFO& mvih = *(MPEG2VIDEOINFO*)pbFormat;
 
-			sl.AddTail(_T("MPEG2VIDEOINFO:"));
-			str.Format(_T("dwStartTimeCode: %d"), mvih.dwStartTimeCode);
-			sl.AddTail(str);
-			str.Format(_T("cbSequenceHeader: %d"), mvih.cbSequenceHeader);
-			sl.AddTail(str);
-			str.Format(_T("dwProfile: 0x%08x"), mvih.dwProfile);
-			sl.AddTail(str);
-			str.Format(_T("dwLevel: 0x%08x"), mvih.dwLevel);
-			sl.AddTail(str);
-			str.Format(_T("dwFlags: 0x%08x"), mvih.dwFlags);
-			sl.AddTail(str);
+			sl.emplace_back(L"MPEG2VIDEOINFO:");
+			str.Format(L"dwStartTimeCode: %d", mvih.dwStartTimeCode);
+			sl.emplace_back(str);
+			str.Format(L"cbSequenceHeader: %d", mvih.cbSequenceHeader);
+			sl.emplace_back(str);
+			str.Format(L"dwProfile: 0x%08x", mvih.dwProfile);
+			sl.emplace_back(str);
+			str.Format(L"dwLevel: 0x%08x", mvih.dwLevel);
+			sl.emplace_back(str);
+			str.Format(L"dwFlags: 0x%08x", mvih.dwFlags);
+			sl.emplace_back(str);
 
-			sl.AddTail(_T(""));
+			sl.emplace_back(L"");
 		}
 
-		sl.AddTail(_T("BITMAPINFOHEADER:"));
-		str.Format(_T("biSize: %u"), bih->biSize);
-		sl.AddTail(str);
-		str.Format(_T("biWidth: %d"), bih->biWidth);
-		sl.AddTail(str);
-		str.Format(_T("biHeight: %d"), bih->biHeight);
-		sl.AddTail(str);
-		str.Format(_T("biPlanes: %u"), bih->biPlanes);
-		sl.AddTail(str);
-		str.Format(_T("biBitCount: %u"), bih->biBitCount);
-		sl.AddTail(str);
-		if (bih->biCompression < 256) {
-			str.Format(_T("biCompression: %u"), bih->biCompression);
-		} else {
-			str.Format(_T("biCompression: %4.4hs"), &bih->biCompression);
-		}
-		sl.AddTail(str);
-		str.Format(_T("biSizeImage: %d"), bih->biSizeImage);
-		sl.AddTail(str);
-		str.Format(_T("biXPelsPerMeter: %d"), bih->biXPelsPerMeter);
-		sl.AddTail(str);
-		str.Format(_T("biYPelsPerMeter: %d"), bih->biYPelsPerMeter);
-		sl.AddTail(str);
-		str.Format(_T("biClrUsed: %u"), bih->biClrUsed);
-		sl.AddTail(str);
-		str.Format(_T("biClrImportant: %u"), bih->biClrImportant);
-		sl.AddTail(str);
+		sl.emplace_back(L"BITMAPINFOHEADER:");
+		str.Format(L"biSize: %u", bih->biSize);
+		sl.emplace_back(str);
+		str.Format(L"biWidth: %d", bih->biWidth);
+		sl.emplace_back(str);
+		str.Format(L"biHeight: %d", bih->biHeight);
+		sl.emplace_back(str);
+		str.Format(L"biPlanes: %u", bih->biPlanes);
+		sl.emplace_back(str);
+		str.Format(L"biBitCount: %u", bih->biBitCount);
+		sl.emplace_back(str);
+		str.Format(L"biCompression: %s", FourccToWStr(bih->biCompression));
+		sl.emplace_back(str);
+		str.Format(L"biSizeImage: %d", bih->biSizeImage);
+		sl.emplace_back(str);
+		str.Format(L"biXPelsPerMeter: %d", bih->biXPelsPerMeter);
+		sl.emplace_back(str);
+		str.Format(L"biYPelsPerMeter: %d", bih->biYPelsPerMeter);
+		sl.emplace_back(str);
+		str.Format(L"biClrUsed: %u", bih->biClrUsed);
+		sl.emplace_back(str);
+		str.Format(L"biClrImportant: %u", bih->biClrImportant);
+		sl.emplace_back(str);
 	} else if (formattype == FORMAT_WaveFormatEx || formattype == FORMAT_WaveFormatExFFMPEG) {
-		WAVEFORMATEX *pWfe = NULL;
+		WAVEFORMATEX *pWfe = nullptr;
 		if (formattype == FORMAT_WaveFormatExFFMPEG) {
 			fmtsize = sizeof(WAVEFORMATEXFFMPEG);
 
 			WAVEFORMATEXFFMPEG *wfeff = (WAVEFORMATEXFFMPEG*)pbFormat;
 			pWfe = &wfeff->wfex;
 
-			sl.AddTail(_T("WAVEFORMATEXFFMPEG:"));
-			str.Format(_T("nCodecId: 0x%04x"), wfeff->nCodecId);
-			sl.AddTail(str);
-			sl.AddTail(_T(""));
+			sl.emplace_back(L"WAVEFORMATEXFFMPEG:");
+			str.Format(L"nCodecId: 0x%04x", wfeff->nCodecId);
+			sl.emplace_back(str);
+			sl.emplace_back(L"");
 		} else {
 			fmtsize = sizeof(WAVEFORMATEX);
 			pWfe = (WAVEFORMATEX*)pbFormat;
@@ -730,59 +792,59 @@ void CMediaTypeEx::Dump(CAtlList<CString>& sl)
 
 		WAVEFORMATEX& wfe = *pWfe;
 
-		sl.AddTail(_T("WAVEFORMATEX:"));
-		str.Format(_T("wFormatTag: 0x%04x"), wfe.wFormatTag);
-		sl.AddTail(str);
-		str.Format(_T("nChannels: %u"), wfe.nChannels);
-		sl.AddTail(str);
-		str.Format(_T("nSamplesPerSec: %u"), wfe.nSamplesPerSec);
-		sl.AddTail(str);
-		str.Format(_T("nAvgBytesPerSec: %u"), wfe.nAvgBytesPerSec);
-		sl.AddTail(str);
-		str.Format(_T("nBlockAlign: %u"), wfe.nBlockAlign);
-		sl.AddTail(str);
-		str.Format(_T("wBitsPerSample: %u"), wfe.wBitsPerSample);
-		sl.AddTail(str);
-		str.Format(_T("cbSize: %u (extra bytes)"), wfe.cbSize);
-		sl.AddTail(str);
+		sl.emplace_back(L"WAVEFORMATEX:");
+		str.Format(L"wFormatTag: 0x%04x", wfe.wFormatTag);
+		sl.emplace_back(str);
+		str.Format(L"nChannels: %u", wfe.nChannels);
+		sl.emplace_back(str);
+		str.Format(L"nSamplesPerSec: %u", wfe.nSamplesPerSec);
+		sl.emplace_back(str);
+		str.Format(L"nAvgBytesPerSec: %u", wfe.nAvgBytesPerSec);
+		sl.emplace_back(str);
+		str.Format(L"nBlockAlign: %u", wfe.nBlockAlign);
+		sl.emplace_back(str);
+		str.Format(L"wBitsPerSample: %u", wfe.wBitsPerSample);
+		sl.emplace_back(str);
+		str.Format(L"cbSize: %u (extra bytes)", wfe.cbSize);
+		sl.emplace_back(str);
 
 		if (wfe.wFormatTag != WAVE_FORMAT_PCM && wfe.cbSize > 0 && formattype == FORMAT_WaveFormatEx) {
 			if (wfe.wFormatTag == WAVE_FORMAT_EXTENSIBLE && wfe.cbSize == sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)) {
-				sl.AddTail(_T(""));
+				sl.emplace_back(L"");
 
 				fmtsize = sizeof(WAVEFORMATEXTENSIBLE);
 
 				WAVEFORMATEXTENSIBLE& wfex = *(WAVEFORMATEXTENSIBLE*)pbFormat;
 
-				sl.AddTail(_T("WAVEFORMATEXTENSIBLE:"));
+				sl.emplace_back(L"WAVEFORMATEXTENSIBLE:");
 				if (wfex.Format.wBitsPerSample != 0) {
-					str.Format(_T("wValidBitsPerSample: %u"), wfex.Samples.wValidBitsPerSample);
+					str.Format(L"wValidBitsPerSample: %u", wfex.Samples.wValidBitsPerSample);
 				} else {
-					str.Format(_T("wSamplesPerBlock: %u"), wfex.Samples.wSamplesPerBlock);
+					str.Format(L"wSamplesPerBlock: %u", wfex.Samples.wSamplesPerBlock);
 				}
-				sl.AddTail(str);
-				str.Format(_T("dwChannelMask: 0x%08x"), wfex.dwChannelMask);
-				sl.AddTail(str);
-				str.Format(_T("SubFormat: %s"), CStringFromGUID(wfex.SubFormat));
-				sl.AddTail(str);
+				sl.emplace_back(str);
+				str.Format(L"dwChannelMask: 0x%08x", wfex.dwChannelMask);
+				sl.emplace_back(str);
+				str.Format(L"SubFormat: %s", CStringFromGUID(wfex.SubFormat));
+				sl.emplace_back(str);
 			} else if (wfe.wFormatTag == WAVE_FORMAT_DOLBY_AC3 && wfe.cbSize == sizeof(DOLBYAC3WAVEFORMAT)-sizeof(WAVEFORMATEX)) {
-				sl.AddTail(_T(""));
+				sl.emplace_back(L"");
 
 				fmtsize = sizeof(DOLBYAC3WAVEFORMAT);
 
 				DOLBYAC3WAVEFORMAT& ac3wf = *(DOLBYAC3WAVEFORMAT*)pbFormat;
 
-				sl.AddTail(_T("DOLBYAC3WAVEFORMAT:"));
-				str.Format(_T("bBigEndian: %u"), ac3wf.bBigEndian);
-				sl.AddTail(str);
-				str.Format(_T("bsid: %u"), ac3wf.bsid);
-				sl.AddTail(str);
-				str.Format(_T("lfeon: %u"), ac3wf.lfeon);
-				sl.AddTail(str);
-				str.Format(_T("copyrightb: %u"), ac3wf.copyrightb);
-				sl.AddTail(str);
-				str.Format(_T("nAuxBitsCode: %u"), ac3wf.nAuxBitsCode);
-				sl.AddTail(str);
+				sl.emplace_back(L"DOLBYAC3WAVEFORMAT:");
+				str.Format(L"bBigEndian: %u", ac3wf.bBigEndian);
+				sl.emplace_back(str);
+				str.Format(L"bsid: %u", ac3wf.bsid);
+				sl.emplace_back(str);
+				str.Format(L"lfeon: %u", ac3wf.lfeon);
+				sl.emplace_back(str);
+				str.Format(L"copyrightb: %u", ac3wf.copyrightb);
+				sl.emplace_back(str);
+				str.Format(L"nAuxBitsCode: %u", ac3wf.nAuxBitsCode);
+				sl.emplace_back(str);
 			}
 		}
 	} else if (formattype == FORMAT_VorbisFormat) {
@@ -790,75 +852,75 @@ void CMediaTypeEx::Dump(CAtlList<CString>& sl)
 
 		VORBISFORMAT& vf = *(VORBISFORMAT*)pbFormat;
 
-		sl.AddTail(_T("VORBISFORMAT:"));
-		str.Format(_T("nChannels: %u"), vf.nChannels);
-		sl.AddTail(str);
-		str.Format(_T("nSamplesPerSec: %u"), vf.nSamplesPerSec);
-		sl.AddTail(str);
-		str.Format(_T("nMinBitsPerSec: %u"), vf.nMinBitsPerSec);
-		sl.AddTail(str);
-		str.Format(_T("nAvgBitsPerSec: %u"), vf.nAvgBitsPerSec);
-		sl.AddTail(str);
-		str.Format(_T("nMaxBitsPerSec: %u"), vf.nMaxBitsPerSec);
-		sl.AddTail(str);
-		str.Format(_T("fQuality: %.3f"), vf.fQuality);
-		sl.AddTail(str);
+		sl.emplace_back(L"VORBISFORMAT:");
+		str.Format(L"nChannels: %u", vf.nChannels);
+		sl.emplace_back(str);
+		str.Format(L"nSamplesPerSec: %u", vf.nSamplesPerSec);
+		sl.emplace_back(str);
+		str.Format(L"nMinBitsPerSec: %u", vf.nMinBitsPerSec);
+		sl.emplace_back(str);
+		str.Format(L"nAvgBitsPerSec: %u", vf.nAvgBitsPerSec);
+		sl.emplace_back(str);
+		str.Format(L"nMaxBitsPerSec: %u", vf.nMaxBitsPerSec);
+		sl.emplace_back(str);
+		str.Format(L"fQuality: %.3f", vf.fQuality);
+		sl.emplace_back(str);
 	} else if (formattype == FORMAT_VorbisFormat2) {
 		fmtsize = sizeof(VORBISFORMAT2);
 
 		VORBISFORMAT2& vf = *(VORBISFORMAT2*)pbFormat;
 
-		sl.AddTail(_T("VORBISFORMAT:"));
-		str.Format(_T("Channels: %u"), vf.Channels);
-		sl.AddTail(str);
-		str.Format(_T("SamplesPerSec: %u"), vf.SamplesPerSec);
-		sl.AddTail(str);
-		str.Format(_T("BitsPerSample: %u"), vf.BitsPerSample);
-		sl.AddTail(str);
-		str.Format(_T("HeaderSize: {%u, %u, %u}"), vf.HeaderSize[0], vf.HeaderSize[1], vf.HeaderSize[2]);
-		sl.AddTail(str);
+		sl.emplace_back(L"VORBISFORMAT:");
+		str.Format(L"Channels: %u", vf.Channels);
+		sl.emplace_back(str);
+		str.Format(L"SamplesPerSec: %u", vf.SamplesPerSec);
+		sl.emplace_back(str);
+		str.Format(L"BitsPerSample: %u", vf.BitsPerSample);
+		sl.emplace_back(str);
+		str.Format(L"HeaderSize: {%u, %u, %u}", vf.HeaderSize[0], vf.HeaderSize[1], vf.HeaderSize[2]);
+		sl.emplace_back(str);
 	} else if (formattype == FORMAT_SubtitleInfo) {
 		fmtsize = sizeof(SUBTITLEINFO);
 
 		SUBTITLEINFO& si = *(SUBTITLEINFO*)pbFormat;
 
-		sl.AddTail(_T("SUBTITLEINFO:"));
-		str.Format(_T("dwOffset: %u"), si.dwOffset);
-		sl.AddTail(str);
-		str.Format(_T("IsoLang: %s"), CString(CStringA(si.IsoLang, _countof(si.IsoLang) - 1)));
-		sl.AddTail(str);
-		str.Format(_T("TrackName: %s"), CString(si.TrackName, _countof(si.TrackName) - 1));
-		sl.AddTail(str);
+		sl.emplace_back(L"SUBTITLEINFO:");
+		str.Format(L"dwOffset: %u", si.dwOffset);
+		sl.emplace_back(str);
+		str.Format(L"IsoLang: %s", CString(si.IsoLang, _countof(si.IsoLang) - 1));
+		sl.emplace_back(str);
+		str.Format(L"TrackName: %s", CString(si.TrackName, _countof(si.TrackName) - 1));
+		sl.emplace_back(str);
 	}
 
 	if (fmtsize < cbFormat) { // extra and unknown data
-		sl.AddTail(_T(""));
+		sl.emplace_back(L"");
 
 		ULONG extrasize = cbFormat - fmtsize;
-		str.Format(_T("Extradata: %u"), extrasize);
-		sl.AddTail(str);
+		str.Format(L"Extradata: %u", extrasize);
+		sl.emplace_back(str);
 		for (ULONG i = 0, j = (extrasize + 15) & ~15; i < j; i += 16) {
-			str.Format(_T("%04x:"), i);
-			ULONG line_end = min(i + 16, extrasize);
+			str.Format(L"%04x:", i);
+			ULONG line_end = std::min(i + 16, extrasize);
 
 			for (ULONG k = i; k < line_end; k++) {
-				str.AppendFormat(_T(" %02x"), pbFormat[fmtsize + k]);
+				str.AppendFormat(L" %02x", pbFormat[fmtsize + k]);
 			}
 
 			for (ULONG k = line_end, l = i + 16; k < l; k++) {
-				str += _T("   ");
+				str += L"   ";
 			}
 
 			str += ' ';
 
-			CStringA ch;
+			CString ch;
 			for (size_t k = i; k < line_end; k++) {
 				unsigned char c = (unsigned char)pbFormat[fmtsize + k];
-				ch.AppendFormat("%c", c >= 0x20 ? c : '.');
+				ch.AppendFormat(L"%C", c >= 0x20 ? c : '.');
 			}
 			str += ch;
 
-			sl.AddTail(str);
+			sl.emplace_back(str);
 		}
 	}
 }

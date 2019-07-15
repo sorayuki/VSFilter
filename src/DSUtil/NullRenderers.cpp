@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2015 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -23,13 +23,15 @@
 #include "NullRenderers.h"
 #include <moreuuids.h>
 #include "MediaTypeEx.h"
+#include "D3D9Helper.h"
+#include "Log.h"
+#include "FileHandle.h"
 
 #define USE_DXVA
 
 #ifdef USE_DXVA
 
 #include <d3d9.h>
-#include <dxva.h>
 #include <dxva2api.h>		// DXVA2
 #include <evr.h>
 #include <mfapi.h>	// API Media Foundation
@@ -52,10 +54,10 @@ public :
 				m_pD3DDeviceManager->CloseDeviceHandle(m_hDevice);
 				m_hDevice = INVALID_HANDLE_VALUE;
 			}
-			m_pD3DDeviceManager = NULL;
+			m_pD3DDeviceManager = nullptr;
 		}
 		if (m_pD3DDev) {
-			m_pD3DDev = NULL;
+			m_pD3DDev = nullptr;
 		}
 		if (m_hDXVA2Lib) {
 			FreeLibrary(m_hDXVA2Lib);
@@ -149,14 +151,14 @@ private :
 
 CNullVideoRendererInputPin::CNullVideoRendererInputPin(CBaseRenderer *pRenderer, HRESULT *phr, LPCWSTR Name)
 	: CRendererInputPin(pRenderer, phr, Name)
-	, m_hDXVA2Lib(NULL)
-	, m_pD3DDev(NULL)
-	, m_pD3DDeviceManager(NULL)
+	, m_hDXVA2Lib(nullptr)
+	, m_pD3DDev(nullptr)
+	, m_pD3DDeviceManager(nullptr)
 	, m_hDevice(INVALID_HANDLE_VALUE)
 {
 	CreateSurface();
 
-	m_hDXVA2Lib = LoadLibrary(L"dxva2.dll");
+	m_hDXVA2Lib = LoadLibraryW(L"dxva2.dll");
 	if (m_hDXVA2Lib) {
 		pfDXVA2CreateDirect3DDeviceManager9 = reinterpret_cast<PTR_DXVA2CreateDirect3DDeviceManager9>(GetProcAddress(m_hDXVA2Lib, "DXVA2CreateDirect3DDeviceManager9"));
 		pfDXVA2CreateVideoService = reinterpret_cast<PTR_DXVA2CreateVideoService>(GetProcAddress(m_hDXVA2Lib, "DXVA2CreateVideoService"));
@@ -173,13 +175,9 @@ CNullVideoRendererInputPin::CNullVideoRendererInputPin(CBaseRenderer *pRenderer,
 
 void CNullVideoRendererInputPin::CreateSurface()
 {
-	HRESULT		hr;
-	m_pD3D.Attach(Direct3DCreate9(D3D_SDK_VERSION));
-	if (!m_pD3D) {
-		m_pD3D.Attach(Direct3DCreate9(D3D9b_SDK_VERSION));
-	}
+	m_pD3D.Attach(D3D9Helper::Direct3DCreate9());
 
-	m_hWnd = NULL;	// TODO : put true window
+	m_hWnd = nullptr;	// TODO : put true window
 
 	D3DDISPLAYMODE d3ddm;
 	ZeroMemory(&d3ddm, sizeof(d3ddm));
@@ -197,10 +195,12 @@ void CNullVideoRendererInputPin::CreateSurface()
 	pp.BackBufferHeight = d3ddm.Height;
 	pp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;
 
-	hr = m_pD3D->CreateDevice(
-			 D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, m_hWnd,
-			 D3DCREATE_SOFTWARE_VERTEXPROCESSING|D3DCREATE_MULTITHREADED, //D3DCREATE_MANAGED
-			 &pp, &m_pD3DDev);
+	HRESULT hr = m_pD3D->CreateDevice(
+					D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, m_hWnd,
+					D3DCREATE_SOFTWARE_VERTEXPROCESSING|D3DCREATE_MULTITHREADED, //D3DCREATE_MANAGED
+					&pp, &m_pD3DDev);
+
+	UNREFERENCED_PARAMETER(hr);
 }
 
 STDMETHODIMP CNullVideoRendererInputPin::NonDelegatingQueryInterface(REFIID riid, void** ppv)
@@ -214,7 +214,7 @@ STDMETHODIMP CNullVideoRendererInputPin::NonDelegatingQueryInterface(REFIID riid
 
 STDMETHODIMP CNullVideoRendererInputPin::GetService(REFGUID guidService, REFIID riid, LPVOID *ppvObject)
 {
-	if (m_pD3DDeviceManager != NULL && guidService == MR_VIDEO_ACCELERATION_SERVICE) {
+	if (m_pD3DDeviceManager != nullptr && guidService == MR_VIDEO_ACCELERATION_SERVICE) {
 		if (riid == __uuidof(IDirect3DDeviceManager9)) {
 			return m_pD3DDeviceManager->QueryInterface (riid, ppvObject);
 		} else if (riid == __uuidof(IDirectXVideoDecoderService) || riid == __uuidof(IDirectXVideoProcessorService) ) {
@@ -271,7 +271,7 @@ STDMETHODIMP CNullVideoRendererInputPin::GetVideoWindow(HWND *phwndVideo)
 // CNullRenderer
 //
 
-CNullRenderer::CNullRenderer(REFCLSID clsid, TCHAR* pName, LPUNKNOWN pUnk, HRESULT* phr)
+CNullRenderer::CNullRenderer(REFCLSID clsid, WCHAR* pName, LPUNKNOWN pUnk, HRESULT* phr)
 	: CBaseRenderer(clsid, pName, pUnk, phr)
 {
 }
@@ -281,7 +281,7 @@ CNullRenderer::CNullRenderer(REFCLSID clsid, TCHAR* pName, LPUNKNOWN pUnk, HRESU
 //
 
 CNullVideoRenderer::CNullVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
-	: CNullRenderer(__uuidof(this), NAME("Null Video Renderer"), pUnk, phr)
+	: CNullRenderer(__uuidof(this), L"Null Video Renderer", pUnk, phr)
 {
 }
 
@@ -299,13 +299,14 @@ HRESULT CNullVideoRenderer::DoRenderSample(IMediaSample* pSample)
 	static int nNb = 1;
 	if (nNb < 100) {
 		const long lSize = pSample->GetActualDataLength();
-		BYTE* pMediaBuffer = NULL;
+		BYTE* pMediaBuffer = nullptr;
 		HRESULT hr = pSample->GetPointer(&pMediaBuffer);
-		char strFile[MAX_PATH];
 
-		sprintf_s(strFile, "VideoData%02d.bin", nNb++);
-		FILE* hFile = fopen(strFile, "wb");
-		if (hFile) {
+		WCHAR strFile[MAX_PATH];
+		swprintf_s(strFile, L"C:\\TEMP\\VideoData%03d.bin", nNb++);
+
+		FILE* hFile;
+		if (_wfopen_s(&hFile, strFile, L"wb") == 0) {
 			fwrite(pMediaBuffer,
 				   1,
 				   lSize,
@@ -323,11 +324,30 @@ HRESULT CNullVideoRenderer::DoRenderSample(IMediaSample* pSample)
 //
 
 CNullUVideoRenderer::CNullUVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
-	: CNullRenderer(__uuidof(this), NAME("Null Video Renderer (Uncompressed)"), pUnk, phr)
+	: CNullRenderer(__uuidof(this), L"Null Video Renderer (Uncompressed)", pUnk, phr)
 {
 #ifdef USE_DXVA
 	m_pInputPin = DNew CNullVideoRendererInputPin(this,phr,L"In");
 #endif
+}
+
+HRESULT CNullUVideoRenderer::SetMediaType(const CMediaType *pmt)
+{
+	HRESULT hr = __super::SetMediaType(pmt);
+
+	if (S_OK == hr) {
+		m_mt = *pmt;
+
+		if (m_mt.formattype == FORMAT_VideoInfo2) {
+			BITMAPINFOHEADER& bih = ((VIDEOINFOHEADER2*)pmt->pbFormat)->bmiHeader;
+			DLog(L"CNullUVideoRenderer::SetMediaType : %s, %dx%d", GetGUIDString(m_mt.subtype), bih.biWidth, bih.biHeight);
+		}
+		else {
+			DLog(L"CNullUVideoRenderer::SetMediaType : %s", GetGUIDString(m_mt.subtype));
+		}
+	}
+
+	return hr;
 }
 
 HRESULT CNullUVideoRenderer::CheckMediaType(const CMediaType* pmt)
@@ -348,6 +368,10 @@ HRESULT CNullUVideoRenderer::CheckMediaType(const CMediaType* pmt)
 			   || pmt->subtype == MEDIASUBTYPE_AYUV
 			   || pmt->subtype == MEDIASUBTYPE_YV16
 			   || pmt->subtype == MEDIASUBTYPE_YV24
+			   || pmt->subtype == MEDIASUBTYPE_P010
+			   || pmt->subtype == MEDIASUBTYPE_P016
+			   || pmt->subtype == MEDIASUBTYPE_P210
+			   || pmt->subtype == MEDIASUBTYPE_P216
 			   || pmt->subtype == MEDIASUBTYPE_RGB1
 			   || pmt->subtype == MEDIASUBTYPE_RGB4
 			   || pmt->subtype == MEDIASUBTYPE_RGB8
@@ -364,14 +388,52 @@ HRESULT CNullUVideoRenderer::CheckMediaType(const CMediaType* pmt)
 		   : E_FAIL;
 }
 
+#include "../filters/renderer/VideoRenderers/Utils.h"
 HRESULT CNullUVideoRenderer::DoRenderSample(IMediaSample* pSample)
 {
-#ifdef USE_DXVA
-	CComQIPtr<IMFGetService> pService = pSample;
-	if (pService != NULL) {
-		CComPtr<IDirect3DSurface9>	pSurface;
-		pService->GetService(MR_BUFFER_SERVICE, IID_PPV_ARGS(&pSurface));
-		// TODO : render surface...
+#if _DEBUG && 0
+	static int cnt = 0;
+
+	if (cnt >= 20) {
+		if (0) {
+			cnt = 0; // loop
+		} else {
+			return S_OK; // no dump after 20 frames
+		}
+	}
+
+	wchar_t strFile[MAX_PATH] = { 0 };
+	swprintf_s(strFile, L"%sVideoDump%03d.bmp", GetProgramDir(), cnt++);
+
+	if (CComQIPtr<IMFGetService> pService = pSample) {
+		CComPtr<IDirect3DSurface9> pSurface;
+		if (SUCCEEDED(pService->GetService(MR_BUFFER_SERVICE, IID_PPV_ARGS(&pSurface)))) {
+			D3DSURFACE_DESC desc = {};
+			D3DLOCKED_RECT r = {};
+
+			if (S_OK == pSurface->GetDesc(&desc) && S_OK == pSurface->LockRect(&r, nullptr, D3DLOCK_READONLY)) {
+				SaveRAWVideoAsBMP((BYTE*)r.pBits, desc.Format, r.Pitch, desc.Width, desc.Height, strFile);
+				pSurface->UnlockRect();
+			};
+		}
+	}
+	else if (m_mt.formattype == FORMAT_VideoInfo2) {
+		BYTE* data = nullptr;
+		long size = pSample->GetActualDataLength();
+		if (size > 0 && S_OK == pSample->GetPointer(&data)) {
+			BITMAPINFOHEADER& bih = ((VIDEOINFOHEADER2*)m_mt.pbFormat)->bmiHeader;
+
+			DWORD format = bih.biCompression;
+			if (format == BI_RGB) {
+				if (m_mt.subtype == MEDIASUBTYPE_RGB32) {
+					format = D3DFMT_X8R8G8B8;
+				} else if (m_mt.subtype == MEDIASUBTYPE_ARGB32) {
+					format = D3DFMT_A8R8G8B8;
+				}
+			}
+
+			SaveRAWVideoAsBMP(data, format, 0, bih.biWidth, bih.biHeight, strFile);
+		}
 	}
 #endif
 
@@ -383,7 +445,7 @@ HRESULT CNullUVideoRenderer::DoRenderSample(IMediaSample* pSample)
 //
 
 CNullAudioRenderer::CNullAudioRenderer(LPUNKNOWN pUnk, HRESULT* phr)
-	: CNullRenderer(__uuidof(this), NAME("Null Audio Renderer"), pUnk, phr)
+	: CNullRenderer(__uuidof(this), L"Null Audio Renderer", pUnk, phr)
 {
 }
 
@@ -407,7 +469,7 @@ HRESULT CNullAudioRenderer::CheckMediaType(const CMediaType* pmt)
 //
 
 CNullUAudioRenderer::CNullUAudioRenderer(LPUNKNOWN pUnk, HRESULT* phr)
-	: CNullRenderer(__uuidof(this), NAME("Null Audio Renderer (Uncompressed)"), pUnk, phr)
+	: CNullRenderer(__uuidof(this), L"Null Audio Renderer (Uncompressed)", pUnk, phr)
 {
 }
 
@@ -430,13 +492,14 @@ HRESULT CNullUAudioRenderer::DoRenderSample(IMediaSample* pSample)
 	static int nNb = 1;
 	if (nNb < 100) {
 		const long lSize = pSample->GetActualDataLength();
-		BYTE* pMediaBuffer = NULL;
+		BYTE* pMediaBuffer = nullptr;
 		HRESULT hr = pSample->GetPointer(&pMediaBuffer);
-		char strFile[MAX_PATH];
 
-		sprintf_s(strFile, "AudioData%02d.bin", nNb++);
-		FILE* hFile = fopen(strFile, "wb");
-		if (hFile) {
+		WCHAR strFile[MAX_PATH];
+		swprintf_s(strFile, L"C:\\TEMP\\AudioData%03d.bin", nNb++);
+
+		FILE* hFile;
+		if (_wfopen_s(&hFile, strFile, L"wb") == 0) {
 			fwrite(pMediaBuffer,
 				   1,
 				   lSize,
@@ -458,10 +521,8 @@ HRESULT CNullTextRenderer::CTextInputPin::CheckMediaType(const CMediaType* pmt)
 	return CMediaTypeEx(*pmt).ValidateSubtitle() ? S_OK : E_FAIL;
 }
 
-#pragma warning (disable : 4355)
 CNullTextRenderer::CNullTextRenderer(LPUNKNOWN pUnk, HRESULT* phr)
-	: CBaseFilter(NAME("CNullTextRenderer"), pUnk, this, __uuidof(this), phr)
+	: CBaseFilter(L"CNullTextRenderer", pUnk, this, __uuidof(this), phr)
 {
 	m_pInput.Attach(DNew CTextInputPin(this, this, phr));
 }
-#pragma warning (default : 4355)

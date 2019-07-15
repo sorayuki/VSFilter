@@ -1,5 +1,5 @@
 /*
- * (C) 2011-2015 see Authors.txt
+ * (C) 2011-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -24,37 +24,35 @@
 //
 // Returns the file portion from a path
 //
-CString GetFileOnly(LPCTSTR Path)
+CStringW GetFileOnly(LPCWSTR Path)
 {
-	// Strip off the path and return just the filename part
-	CString temp = (LPCTSTR) Path; // Force CString to make a copy
-	::PathStripPath(temp.GetBuffer(0));
-	temp.ReleaseBuffer(-1);
-	return temp;
+	CStringW cs = Path;
+	::PathStripPathW(cs.GetBuffer(0));
+	cs.ReleaseBuffer(-1);
+	return cs;
 }
 
 //
 // Returns the folder portion from a path
 //
-CString GetFolderOnly(LPCTSTR Path)
+CStringW GetFolderOnly(LPCWSTR Path)
 {
-	// Strip off the filename and return only path part
-	CString temp = (LPCTSTR) Path; // Force CString to make a copy
-	::PathRemoveFileSpec(temp.GetBuffer(0));
-	temp.ReleaseBuffer(-1);
-	return temp;
+	CStringW cs = Path; // Force CStringW to make a copy
+	::PathRemoveFileSpecW(cs.GetBuffer(0));
+	cs.ReleaseBuffer(-1);
+	return cs;
 }
 
 //
 // Adds a backslash to the end of a path if it is needed
 //
-CString AddSlash(LPCTSTR Path)
+CStringW AddSlash(LPCWSTR Path)
 {
-	CString cs = Path;
-	::PathAddBackslash(cs.GetBuffer(_MAX_PATH));
+	CStringW cs = Path;
+	::PathAddBackslashW(cs.GetBuffer(MAX_PATH));
 	cs.ReleaseBuffer(-1);
 	if(cs.IsEmpty()) {
-		cs = _T("\\");
+		cs = L"\\";
 	}
 	return cs;
 }
@@ -62,10 +60,10 @@ CString AddSlash(LPCTSTR Path)
 //
 // Removes a backslash from the end of a path if it is there
 //
-CString RemoveSlash(LPCTSTR Path)
+CStringW RemoveSlash(LPCWSTR Path)
 {
 	CString cs = Path;
-	::PathRemoveBackslash(cs.GetBuffer(_MAX_PATH));
+	::PathRemoveBackslashW(cs.GetBuffer(MAX_PATH));
 	cs.ReleaseBuffer(-1);
 	return cs;
 }
@@ -73,46 +71,55 @@ CString RemoveSlash(LPCTSTR Path)
 //
 // Returns just the .ext part of the file path
 //
-CString GetFileExt(LPCTSTR Path)
+CStringW GetFileExt(LPCWSTR Path)
 {
-	CString cs;
-	cs = ::PathFindExtension(Path);
+	CStringW cs = ::PathFindExtensionW(Path);
 	return cs;
 }
 
 //
 // Exchanges one file extension for another and returns the new fiel path
 //
-CString RenameFileExt(LPCTSTR Path, LPCTSTR Ext)
+CStringW RenameFileExt(LPCWSTR Path, LPCWSTR Ext)
 {
-	CString cs = Path;
-	::PathRenameExtension(cs.GetBuffer(_MAX_PATH), Ext);
+	CStringW cs = Path;
+	::PathRenameExtensionW(cs.GetBuffer(MAX_PATH), Ext);
+	return cs;
+}
+
+//
+// Removes the file name extension from a path, if one is present
+//
+CStringW RemoveFileExt(LPCWSTR Path)
+{
+	CStringW cs = Path;
+	::PathRemoveExtensionW(cs.GetBuffer(MAX_PATH));
 	return cs;
 }
 
 //
 // Generate temporary files with any extension
 //
-BOOL GetTemporaryFilePath(CString strExtension, CString& strFileName)
+BOOL GetTemporaryFilePath(CStringW strExtension, CStringW& strFileName)
 {
-	TCHAR lpszTempPath[_MAX_PATH] = { 0 };
-	if (!GetTempPath(_MAX_PATH, lpszTempPath)) {
+	WCHAR lpszTempPath[MAX_PATH] = { 0 };
+	if (!GetTempPathW(MAX_PATH, lpszTempPath)) {
 		return FALSE;
 	}
 
-	TCHAR lpszFilePath[_MAX_PATH] = { 0 };
+	WCHAR lpszFilePath[MAX_PATH] = { 0 };
 	do {
-		if (!GetTempFileName(lpszTempPath, _T("mpc"), 0, lpszFilePath)) {
+		if (!GetTempFileNameW(lpszTempPath, L"mpc", 0, lpszFilePath)) {
 			return FALSE;
 		}
 
 		DeleteFile(lpszFilePath);
 
 		strFileName = lpszFilePath;
-		strFileName.Replace(_T(".tmp"), strExtension);
+		strFileName.Replace(L".tmp", strExtension);
 
 		DeleteFile(strFileName);
-	} while (_taccess(strFileName, 00) != -1);
+	} while (_waccess(strFileName, 00) != -1);
 
 	return TRUE;
 }
@@ -120,11 +127,11 @@ BOOL GetTemporaryFilePath(CString strExtension, CString& strFileName)
 //
 // Compact Path
 //
-CString CompactPath(LPCTSTR Path, UINT cchMax)
+CStringW CompactPath(LPCWSTR Path, UINT cchMax)
 {
-	CString cs = Path;
+	CStringW cs = Path;
 	WCHAR pathbuf[MAX_PATH] = { 0 };
-	if (::PathCompactPathEx(pathbuf, cs, cchMax, 0)) {
+	if (::PathCompactPathExW(pathbuf, cs, cchMax, 0)) {
 		cs = pathbuf;
 	}
 
@@ -132,40 +139,41 @@ CString CompactPath(LPCTSTR Path, UINT cchMax)
 }
 
 //
-// Get Module Path
+// Get path of specified module
 //
-CString GetModulePath(HMODULE hModule)
+CStringW GetModulePath(HMODULE hModule)
 {
-	CString ret;
-	int pos, len = MAX_PATH - 1;
-	for (;;) {
-		pos = GetModuleFileName(hModule, ret.GetBuffer(len), len);
-		if (pos == len) {
-			// buffer was too small, enlarge it and try again
-			len *= 2;
-			ret.ReleaseBuffer(0);
-			continue;
+	CStringW path;
+	DWORD bufsize = MAX_PATH;
+	DWORD len = 0;
+	while (1) {
+		len = GetModuleFileNameW(hModule, path.GetBuffer(bufsize), bufsize);
+		if (len < bufsize) {
+			break;
 		}
-		ret.ReleaseBuffer(pos);
-		break;
+		bufsize *= 2;
 	}
+	path.ReleaseBufferSetLength(len);
 
-	ASSERT(!ret.IsEmpty());
-	return ret;
+	ASSERT(path.GetLength());
+	return path;
 }
 
 //
 // Get path of the executable file of the current process.
 //
-CString GetProgramPath()
+CStringW GetProgramPath()
 {
-	return GetModulePath(NULL);
+	return GetModulePath(nullptr);
 }
 
 //
-// Get program directory
+// Get program directory with backslash
 //
-CString GetProgramDir()
+CStringW GetProgramDir()
 {
-	return AddSlash(GetFolderOnly(GetModulePath(NULL)));
+	CStringW path = GetModulePath(nullptr);
+	path.Truncate(path.ReverseFind('\\') + 1); // do not use this method for random paths
+
+	return path;
 }

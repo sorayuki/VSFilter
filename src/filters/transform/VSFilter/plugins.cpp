@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -19,8 +19,9 @@
  *
  */
 
+#include <memory>
 #include <string>
-#include <utility>
+
 #include "stdafx.h"
 #include <afxdlgs.h>
 #include <atlpath.h>
@@ -33,6 +34,9 @@
 #include "vfr.h"
 
 #pragma warning(disable: 4706)
+
+// Size of the char buffer according to VirtualDub Filters SDK doc
+#define STRING_PROC_BUFFER_SIZE 128
 
 //
 // Generic interface
@@ -82,7 +86,7 @@ namespace Plugin
 
 				HRESULT hr;
 				if (!(m_pSubPicQueue = DNew CSubPicQueueNoThread(false, pAllocator, &hr)) || FAILED(hr)) {
-					m_pSubPicQueue = NULL;
+					m_pSubPicQueue = nullptr;
 					return false;
 				}
 			}
@@ -112,8 +116,8 @@ namespace Plugin
 		DWORD ThreadProc() {
 			SetThreadPriority(m_hThread, THREAD_PRIORITY_LOWEST);
 
-			CAtlArray<HANDLE> handles;
-			handles.Add(GetRequestHandle());
+			std::vector<HANDLE> handles;
+			handles.push_back(GetRequestHandle());
 
 			CString fn = GetFileName();
 			CFileStatus fs;
@@ -121,12 +125,12 @@ namespace Plugin
 			CFileGetStatus(fn, fs);
 
 			for (;;) {
-				DWORD i = WaitForMultipleObjects(handles.GetCount(), handles.GetData(), FALSE, 1000);
+				DWORD i = WaitForMultipleObjects(handles.size(), handles.data(), FALSE, 1000);
 
 				if (WAIT_OBJECT_0 == i) {
 					Reply(S_OK);
 					break;
-				} else if (WAIT_OBJECT_0 + 1 >= i && i <= WAIT_OBJECT_0 + handles.GetCount()) {
+				} else if (WAIT_OBJECT_0 + 1 >= i && i <= WAIT_OBJECT_0 + handles.size()) {
 					if (FindNextChangeNotification(handles[i - WAIT_OBJECT_0])) {
 						CFileStatus fs2;
 						fs2.m_mtime = 0;
@@ -147,11 +151,11 @@ namespace Plugin
 					if (fn != fn2) {
 						CPath p(fn2);
 						p.RemoveFileSpec();
-						HANDLE h = FindFirstChangeNotification(p, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
+						HANDLE h = FindFirstChangeNotificationW(p, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
 						if (h != INVALID_HANDLE_VALUE) {
 							fn = fn2;
-							handles.SetCount(1);
-							handles.Add(h);
+							handles.resize(1);
+							handles.push_back(h);
 						}
 					}
 				} else { // if(WAIT_ABANDONED_0 == i || WAIT_FAILED == i)
@@ -161,7 +165,7 @@ namespace Plugin
 
 			m_hThread = 0;
 
-			for (size_t i = 1; i < handles.GetCount(); i++) {
+			for (size_t i = 1; i < handles.size(); i++) {
 				FindCloseChangeNotification(handles[i]);
 			}
 
@@ -172,22 +176,22 @@ namespace Plugin
 	class CVobSubFilter : virtual public CFilter
 	{
 	public:
-		CVobSubFilter(CString fn = _T("")) {
+		CVobSubFilter(CString fn = L"") {
 			if (!fn.IsEmpty()) {
 				Open(fn);
 			}
 		}
 
 		bool Open(CString fn) {
-			SetFileName(_T(""));
-			m_pSubPicProvider = NULL;
+			SetFileName(L"");
+			m_pSubPicProvider = nullptr;
 
 			if (CVobSubFile* vsf = DNew CVobSubFile(&m_csSubLock)) {
 				m_pSubPicProvider = (ISubPicProvider*)vsf;
 				if (vsf->Open(CString(fn))) {
 					SetFileName(fn);
 				} else {
-					m_pSubPicProvider = NULL;
+					m_pSubPicProvider = nullptr;
 				}
 			}
 
@@ -200,7 +204,7 @@ namespace Plugin
 		int m_CharSet;
 
 	public:
-		CTextSubFilter(CString fn = _T(""), int CharSet = DEFAULT_CHARSET, float fps = -1)
+		CTextSubFilter(CString fn = L"", int CharSet = DEFAULT_CHARSET, float fps = -1)
 			: m_CharSet(CharSet) {
 			m_fps = fps;
 			if (!fn.IsEmpty()) {
@@ -213,8 +217,8 @@ namespace Plugin
 		}
 
 		bool Open(CString fn, int CharSet = DEFAULT_CHARSET) {
-			SetFileName(_T(""));
-			m_pSubPicProvider = NULL;
+			SetFileName(L"");
+			m_pSubPicProvider = nullptr;
 
 			if (!m_pSubPicProvider) {
 				if (CRenderedTextSubtitle* rts = DNew CRenderedTextSubtitle(&m_csSubLock)) {
@@ -222,7 +226,7 @@ namespace Plugin
 					if (rts->Open(CString(fn), CharSet)) {
 						SetFileName(fn);
 					} else {
-						m_pSubPicProvider = NULL;
+						m_pSubPicProvider = nullptr;
 					}
 				}
 			}
@@ -276,14 +280,14 @@ namespace Plugin
 		class CVobSubVirtualDubFilter : public CVobSubFilter, public CVirtualDubFilter
 		{
 		public:
-			CVobSubVirtualDubFilter(CString fn = _T(""))
+			CVobSubVirtualDubFilter(CString fn = L"")
 				: CVobSubFilter(fn) {}
 
 			int ConfigProc(FilterActivation* fa, const FilterFunctions* ff, HWND hwnd) {
 				AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
-				CFileDialog fd(TRUE, NULL, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY,
-							   _T("VobSub files (*.idx;*.sub)|*.idx;*.sub||"), CWnd::FromHandle(hwnd), 0);
+				CFileDialog fd(TRUE, nullptr, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY,
+							   L"VobSub files (*.idx;*.sub)|*.idx;*.sub||", CWnd::FromHandle(hwnd), 0);
 
 				if (fd.DoModal() != IDOK) {
 					return 1;
@@ -293,7 +297,7 @@ namespace Plugin
 			}
 
 			void StringProc(const FilterActivation* fa, const FilterFunctions* ff, char* str) {
-				sprintf(str, " (%s)", !GetFileName().IsEmpty() ? CStringA(GetFileName()) : " (empty)");
+				sprintf_s(str, STRING_PROC_BUFFER_SIZE, " (%s)", GetFileName().IsEmpty() ? " (empty)" : CStringA(GetFileName()).GetString());
 			}
 
 			bool FssProc(FilterActivation* fa, const FilterFunctions* ff, char* buf, int buflen) {
@@ -307,19 +311,19 @@ namespace Plugin
 		class CTextSubVirtualDubFilter : public CTextSubFilter, public CVirtualDubFilter
 		{
 		public:
-			CTextSubVirtualDubFilter(CString fn = _T(""), int CharSet = DEFAULT_CHARSET)
+			CTextSubVirtualDubFilter(CString fn = L"", int CharSet = DEFAULT_CHARSET)
 				: CTextSubFilter(fn, CharSet) {}
 
 			int ConfigProc(FilterActivation* fa, const FilterFunctions* ff, HWND hwnd) {
 				AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
-				const TCHAR formats[] = _T("TextSub files (*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt)|*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt||");
-				CFileDialog fd(TRUE, NULL, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY|OFN_ENABLETEMPLATE|OFN_ENABLEHOOK,
+				const WCHAR formats[] = L"TextSub files (*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt)|*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt||";
+				CFileDialog fd(TRUE, nullptr, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY|OFN_ENABLETEMPLATE|OFN_ENABLEHOOK,
 							   formats, CWnd::FromHandle(hwnd), sizeof(OPENFILENAME));
 				UINT_PTR CALLBACK OpenHookProc(HWND hDlg, UINT uiMsg, WPARAM wParam, LPARAM lParam);
 
 				fd.m_pOFN->hInstance = AfxGetResourceHandle();
-				fd.m_pOFN->lpTemplateName = MAKEINTRESOURCE(IDD_TEXTSUBOPENTEMPLATE);
+				fd.m_pOFN->lpTemplateName = MAKEINTRESOURCEW(IDD_TEXTSUBOPENTEMPLATE);
 				fd.m_pOFN->lpfnHook = (LPOFNHOOKPROC)OpenHookProc;
 				fd.m_pOFN->lCustData = (LPARAM)DEFAULT_CHARSET;
 
@@ -332,9 +336,9 @@ namespace Plugin
 
 			void StringProc(const FilterActivation* fa, const FilterFunctions* ff, char* str) {
 				if (!GetFileName().IsEmpty()) {
-					sprintf(str, " (%s, %d)", CStringA(GetFileName()), GetCharSet());
+					sprintf_s(str, STRING_PROC_BUFFER_SIZE, " (%s, %d)", CStringA(GetFileName()).GetString(), GetCharSet());
 				} else {
-					sprintf(str, " (empty)");
+					sprintf_s(str, STRING_PROC_BUFFER_SIZE, " (empty)");
 				}
 			}
 
@@ -362,7 +366,7 @@ namespace Plugin
 		{
 			CVirtualDubFilter* f = *(CVirtualDubFilter**)fa->filter_data;
 			if (f) {
-				delete f, f = NULL;
+				delete f, f = nullptr;
 			}
 		}
 
@@ -422,19 +426,19 @@ namespace Plugin
 
 		ScriptFunctionDef vobsub_func_defs[]= {
 			{ (ScriptFunctionPtr)vobsubScriptConfig, "Config", "0s" },
-			{ NULL },
+			{ nullptr },
 		};
 
 		CScriptObject vobsub_obj= {
-			NULL, vobsub_func_defs
+			nullptr, vobsub_func_defs
 		};
 
 		struct FilterDefinition filterDef_vobsub = {
-			NULL, NULL, NULL,			// next, prev, module
+			nullptr, nullptr, nullptr,	// next, prev, module
 			"VobSub",					// name
 			"Adds subtitles from a vob sequence.", // desc
 			"Gabest",					// maker
-			NULL,						// private_data
+			nullptr,					// private_data
 			sizeof(CVirtualDubFilter**), // inst_data_size
 			vobsubInitProc,				// initProc
 			baseDeinitProc,				// deinitProc
@@ -442,27 +446,27 @@ namespace Plugin
 			baseParamProc,				// paramProc
 			baseConfigProc,				// configProc
 			baseStringProc,				// stringProc
-			NULL,						// startProc
-			NULL,						// endProc
+			nullptr,					// startProc
+			nullptr,					// endProc
 			&vobsub_obj,				// script_obj
 			baseFssProc,				// fssProc
 		};
 
 		ScriptFunctionDef textsub_func_defs[]= {
 			{ (ScriptFunctionPtr)textsubScriptConfig, "Config", "0si" },
-			{ NULL },
+			{ nullptr },
 		};
 
 		CScriptObject textsub_obj= {
-			NULL, textsub_func_defs
+			nullptr, textsub_func_defs
 		};
 
 		struct FilterDefinition filterDef_textsub = {
-			NULL, NULL, NULL,			// next, prev, module
+			nullptr, nullptr, nullptr,	// next, prev, module
 			"TextSub",					// name
 			"Adds subtitles from srt, sub, psb, smi, ssa, ass file formats.", // desc
 			"Gabest",					// maker
-			NULL,						// private_data
+			nullptr,					// private_data
 			sizeof(CVirtualDubFilter**), // inst_data_size
 			textsubInitProc,			// initProc
 			baseDeinitProc,				// deinitProc
@@ -470,8 +474,8 @@ namespace Plugin
 			baseParamProc,				// paramProc
 			baseConfigProc,				// configProc
 			baseStringProc,				// stringProc
-			NULL,						// startProc
-			NULL,						// endProc
+			nullptr,					// startProc
+			nullptr,					// endProc
 			&textsub_obj,				// script_obj
 			baseFssProc,				// fssProc
 		};
@@ -548,14 +552,14 @@ namespace Plugin
 		class CVobSubVirtualDubFilter : public CVobSubFilter, public CVirtualDubFilter
 		{
 		public:
-			CVobSubVirtualDubFilter(CString fn = _T(""))
+			CVobSubVirtualDubFilter(CString fn = L"")
 				: CVobSubFilter(fn) {}
 
 			int ConfigProc(VDXFilterActivation* fa, const VDXFilterFunctions* ff, VDXHWND hwnd) {
 				AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
-				CFileDialog fd(TRUE, NULL, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY,
-							   _T("VobSub files (*.idx;*.sub)|*.idx;*.sub||"), CWnd::FromHandle((HWND)hwnd), 0);
+				CFileDialog fd(TRUE, nullptr, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY,
+							   L"VobSub files (*.idx;*.sub)|*.idx;*.sub||", CWnd::FromHandle((HWND)hwnd), 0);
 
 				if (fd.DoModal() != IDOK) {
 					return 1;
@@ -579,7 +583,7 @@ namespace Plugin
 		class CTextSubVirtualDubFilter : public CTextSubFilter, public CVirtualDubFilter
 		{
 		public:
-			CTextSubVirtualDubFilter(CString fn = _T(""), int CharSet = DEFAULT_CHARSET)
+			CTextSubVirtualDubFilter(CString fn = L"", int CharSet = DEFAULT_CHARSET)
 				: CTextSubFilter(fn, CharSet) {}
 
 			int ConfigProc(VDXFilterActivation* fa, const VDXFilterFunctions* ff, VDXHWND hwnd) {
@@ -587,18 +591,18 @@ namespace Plugin
 
 				/* off encoding changing */
 #ifndef _DEBUG
-				const TCHAR formats[] = _T("TextSub files (*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt)|*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt||");
-				CFileDialog fd(TRUE, NULL, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY|OFN_ENABLETEMPLATE|OFN_ENABLEHOOK,
+				const WCHAR formats[] = L"TextSub files (*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt)|*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt||";
+				CFileDialog fd(TRUE, nullptr, GetFileName(), OFN_EXPLORER|OFN_ENABLESIZING|OFN_HIDEREADONLY|OFN_ENABLETEMPLATE|OFN_ENABLEHOOK,
 							   formats, CWnd::FromHandle((HWND)hwnd), sizeof(OPENFILENAME));
 				UINT_PTR CALLBACK OpenHookProc(HWND hDlg, UINT uiMsg, WPARAM wParam, LPARAM lParam);
 
 				fd.m_pOFN->hInstance = AfxGetResourceHandle();
-				fd.m_pOFN->lpTemplateName = MAKEINTRESOURCE(IDD_TEXTSUBOPENTEMPLATE);
+				fd.m_pOFN->lpTemplateName = MAKEINTRESOURCEW(IDD_TEXTSUBOPENTEMPLATE);
 				fd.m_pOFN->lpfnHook = (LPOFNHOOKPROC)OpenHookProc;
 				fd.m_pOFN->lCustData = (LPARAM)DEFAULT_CHARSET;
 #else
-				const TCHAR formats[] = _T("TextSub files (*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt)|*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt||");
-				CFileDialog fd(TRUE, NULL, GetFileName(), OFN_ENABLESIZING|OFN_HIDEREADONLY,
+				const WCHAR formats[] = L"TextSub files (*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt)|*.sub;*.srt;*.smi;*.ssa;*.ass;*.xss;*.psb;*.txt||";
+				CFileDialog fd(TRUE, nullptr, GetFileName(), OFN_ENABLESIZING|OFN_HIDEREADONLY,
 							   formats, CWnd::FromHandle((HWND)hwnd), sizeof(OPENFILENAME));
 #endif
 				if (fd.DoModal() != IDOK) {
@@ -638,7 +642,7 @@ namespace Plugin
 		{
 			CVirtualDubFilter* f = *(CVirtualDubFilter**)fa->filter_data;
 			if (f) {
-				delete f, f = NULL;
+				delete f, f = nullptr;
 			}
 		}
 
@@ -698,19 +702,19 @@ namespace Plugin
 
 		VDXScriptFunctionDef vobsub_func_defs[]= {
 			{ (VDXScriptFunctionPtr)vobsubScriptConfig, "Config", "0s" },
-			{ NULL },
+			{ nullptr },
 		};
 
 		VDXScriptObject vobsub_obj= {
-			NULL, vobsub_func_defs
+			nullptr, vobsub_func_defs
 		};
 
 		struct VDXFilterDefinition filterDef_vobsub = {
-			NULL, NULL, NULL,			// next, prev, module
+			nullptr, nullptr, nullptr,	// next, prev, module
 			"VobSub",					// name
 			"Adds subtitles from a vob sequence.", // desc
 			"Gabest",					// maker
-			NULL,						// private_data
+			nullptr,					// private_data
 			sizeof(CVirtualDubFilter**), // inst_data_size
 			vobsubInitProc,				// initProc
 			baseDeinitProc,				// deinitProc
@@ -718,27 +722,27 @@ namespace Plugin
 			baseParamProc,				// paramProc
 			baseConfigProc,				// configProc
 			baseStringProc,				// stringProc
-			NULL,						// startProc
-			NULL,						// endProc
+			nullptr,					// startProc
+			nullptr,					// endProc
 			&vobsub_obj,				// script_obj
 			baseFssProc,				// fssProc
 		};
 
 		VDXScriptFunctionDef textsub_func_defs[]= {
 			{ (VDXScriptFunctionPtr)textsubScriptConfig, "Config", "0si" },
-			{ NULL },
+			{ nullptr },
 		};
 
 		VDXScriptObject textsub_obj= {
-			NULL, textsub_func_defs
+			nullptr, textsub_func_defs
 		};
 
 		struct VDXFilterDefinition filterDef_textsub = {
-			NULL, NULL, NULL,			// next, prev, module
+			nullptr, nullptr, nullptr,	// next, prev, module
 			"TextSub",					// name
 			"Adds subtitles from srt, sub, psb, smi, ssa, ass file formats.", // desc
 			"Gabest",					// maker
-			NULL,						// private_data
+			nullptr,					// private_data
 			sizeof(CVirtualDubFilter**), // inst_data_size
 			textsubInitProc,			// initProc
 			baseDeinitProc,				// deinitProc
@@ -746,8 +750,8 @@ namespace Plugin
 			baseParamProc,				// paramProc
 			baseConfigProc,				// configProc
 			baseStringProc,				// stringProc
-			NULL,						// startProc
-			NULL,						// endProc
+			nullptr,					// startProc
+			nullptr,					// endProc
 			&textsub_obj,				// script_obj
 			baseFssProc,				// fssProc
 		};
@@ -887,7 +891,7 @@ namespace Plugin
 			env->AddFunction("TextSub", "csif", TextSubCreateSIF, 0);
 			env->AddFunction("MaskSub", "siifi", MaskSubCreateSIIFI, 0);
 			env->SetVar(env->SaveString("RGBA"),false);
-			return(NULL);
+			return(nullptr);
 		}
 	}
 
@@ -1041,7 +1045,7 @@ namespace Plugin
 			env->AddFunction("TextSubSwapUV", "b", TextSubSwapUV, 0);
 			env->AddFunction("MaskSub", "[file]s[width]i[height]i[fps]f[length]i[charset]i[vfr]s", MaskSubCreate, 0);
 			env->SetVar(env->SaveString("RGBA"),false);
-			return(NULL);
+			return(nullptr);
 		}
 	}
 
@@ -1076,12 +1080,12 @@ namespace Plugin
             CVobSubVapourSynthFilter * vobsub;
         };
 
-        static void VS_CC vsfilterInit(VSMap *in, VSMap *out, void **instanceData, VSNode *node, VSCore *core, const VSAPI *vsapi) {
-            VSFilterData * d = static_cast<VSFilterData *>(*instanceData);
+        static void VS_CC vsfilterInit(VSMap * in, VSMap * out, void ** instanceData, VSNode * node, VSCore * core, const VSAPI * vsapi) {
+            const VSFilterData * d = static_cast<const VSFilterData *>(*instanceData);
             vsapi->setVideoInfo(d->vi, 1, node);
         }
 
-        static const VSFrameRef *VS_CC vsfilterGetFrame(int n, int activationReason, void **instanceData, void **frameData, VSFrameContext *frameCtx, VSCore *core, const VSAPI *vsapi) {
+        static const VSFrameRef * VS_CC vsfilterGetFrame(int n, int activationReason, void ** instanceData, void ** frameData, VSFrameContext * frameCtx, VSCore * core, const VSAPI * vsapi) {
             const VSFilterData * d = static_cast<const VSFilterData *>(*instanceData);
 
             if (activationReason == arInitial) {
@@ -1117,7 +1121,7 @@ namespace Plugin
 
                     for (int y = 0; y < d->vi->height; y++) {
                         for (int x = 0; x < d->vi->width; x++) {
-                            tmpp[x * 4] = srcpB[x];
+                            tmpp[x * 4 + 0] = srcpB[x];
                             tmpp[x * 4 + 1] = srcpG[x];
                             tmpp[x * 4 + 2] = srcpR[x];
                             tmpp[x * 4 + 3] = 0ui8;
@@ -1158,7 +1162,7 @@ namespace Plugin
 
                     for (int y = 0; y < d->vi->height; y++) {
                         for (int x = 0; x < d->vi->width; x++) {
-                            dstpB[x] = tmpp[x * 4];
+                            dstpB[x] = tmpp[x * 4 + 0];
                             dstpG[x] = tmpp[x * 4 + 1];
                             dstpR[x] = tmpp[x * 4 + 2];
                         }
@@ -1178,7 +1182,7 @@ namespace Plugin
             return nullptr;
         }
 
-        static void VS_CC vsfilterFree(void *instanceData, VSCore *core, const VSAPI *vsapi) {
+        static void VS_CC vsfilterFree(void * instanceData, VSCore * core, const VSAPI * vsapi) {
             VSFilterData * d = static_cast<VSFilterData *>(instanceData);
 
             vsapi->freeNode(d->node);
@@ -1189,64 +1193,60 @@ namespace Plugin
             delete d;
         }
 
-        static void VS_CC vsfilterCreate(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
-            VSFilterData d {};
-            int err;
+        static void VS_CC vsfilterCreate(const VSMap * in, VSMap * out, void * userData, VSCore * core, const VSAPI * vsapi) {
+            std::unique_ptr<VSFilterData> d = std::make_unique<VSFilterData>();
+            const std::string filterName{ static_cast<const char *>(userData) };
+            int err{};
 
-            const std::string filterName { static_cast<const char *>(userData) };
+            d->node = vsapi->propGetNode(in, "clip", 0, nullptr);
+            d->vi = vsapi->getVideoInfo(d->node);
 
-            d.node = vsapi->propGetNode(in, "clip", 0, nullptr);
-            d.vi = vsapi->getVideoInfo(d.node);
+            try {
+                if (!isConstantFormat(d->vi) ||
+                    (d->vi->format->id != pfYUV420P8 && d->vi->format->id != pfRGB24))
+                    throw std::string{ ": only constant format YUV420P8 and RGB24 input supported" };
 
-            if (!isConstantFormat(d.vi) || (d.vi->format->id != pfYUV420P8 && d.vi->format->id != pfRGB24)) {
-                vsapi->setError(out, (filterName + ": only constant format YUV420P8 and RGB24 input supported").c_str());
-                vsapi->freeNode(d.node);
+                const char * file = vsapi->propGetData(in, "file", 0, nullptr);
+
+                int charset = int64ToIntS(vsapi->propGetInt(in, "charset", 0, &err));
+                if (err)
+                    charset = DEFAULT_CHARSET;
+
+                float fps = static_cast<float>(vsapi->propGetFloat(in, "fps", 0, &err));
+                if (err)
+                    fps = -1.0f;
+                d->fps = (fps > 0.0f || !d->vi->fpsNum) ? fps : static_cast<float>(d->vi->fpsNum) / d->vi->fpsDen;
+
+                const char * vfr = vsapi->propGetData(in, "vfr", 0, &err);
+                if (!err)
+                    d->vfr = GetVFRTranslator(vfr);
+
+                if (!d->vi->fpsNum && fps <= 0.0f && !d->vfr)
+                    throw std::string{ ": variable framerate clip must have fps or vfr specified" };
+
+                if (filterName == "TextSub")
+                    d->textsub = new CTextSubVapourSynthFilter{ file, charset, fps, &err };
+                else
+                    d->vobsub = new CVobSubVapourSynthFilter{ file, &err };
+                if (err)
+                    throw std::string{ ": can't open " } + file;
+            } catch (const std::string & error) {
+                vsapi->setError(out, (filterName + error).c_str());
+                vsapi->freeNode(d->node);
+                delete d->textsub;
+                delete d->vobsub;
                 return;
             }
 
-            const char * file = vsapi->propGetData(in, "file", 0, nullptr);
-
-            int charset = int64ToIntS(vsapi->propGetInt(in, "charset", 0, &err));
-            if (err)
-                charset = DEFAULT_CHARSET;
-
-            float fps = static_cast<float>(vsapi->propGetFloat(in, "fps", 0, &err));
-            if (err)
-                fps = -1.f;
-            d.fps = (fps > 0.f || !d.vi->fpsNum) ? fps : static_cast<float>(d.vi->fpsNum) / d.vi->fpsDen;
-
-            const char * vfr = vsapi->propGetData(in, "vfr", 0, &err);
-            if (!err)
-                d.vfr = GetVFRTranslator(vfr);
-
-            if (!d.vi->fpsNum && fps <= 0.f && !d.vfr) {
-                vsapi->setError(out, (filterName + ": variable framerate clip must have fps or vfr specified").c_str());
-                vsapi->freeNode(d.node);
-                return;
-            }
-
-            if (filterName == "TextSub")
-                d.textsub = new CTextSubVapourSynthFilter { file, charset, fps, &err };
-            else
-                d.vobsub = new CVobSubVapourSynthFilter { file, &err };
-            if (err) {
-                vsapi->setError(out, (filterName + ": can't open " + file).c_str());
-                vsapi->freeNode(d.node);
-                delete d.textsub;
-                delete d.vobsub;
-                return;
-            }
-
-            VSFilterData * data = new VSFilterData { std::move(d) };
-
-            vsapi->createFilter(in, out, static_cast<const char *>(userData), vsfilterInit, vsfilterGetFrame, vsfilterFree, fmParallelRequests, 0, data, core);
+            vsapi->createFilter(in, out, static_cast<const char *>(userData), vsfilterInit, vsfilterGetFrame, vsfilterFree, fmParallelRequests, 0, d.release(), core);
         }
 
         //////////////////////////////////////////
         // Init
 
-        VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin) {
+        VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin * plugin) {
             configFunc("com.holywu.vsfilter", "vsf", "VSFilter", VAPOURSYNTH_API_VERSION, 1, plugin);
+            
             registerFunc("TextSub",
                          "clip:clip;"
                          "file:data;"
@@ -1254,6 +1254,7 @@ namespace Plugin
                          "fps:float:opt;"
                          "vfr:data:opt;",
                          vsfilterCreate, const_cast<char *>("TextSub"), plugin);
+            
             registerFunc("VobSub",
                          "clip:clip;"
                          "file:data;",
@@ -1270,21 +1271,21 @@ UINT_PTR CALLBACK OpenHookProc(HWND hDlg, UINT uiMsg, WPARAM wParam, LPARAM lPar
 			OPENFILENAME* ofn = ((OFNOTIFY *)lParam)->lpOFN;
 
 			if (((NMHDR *)lParam)->code == CDN_FILEOK) {
-				ofn->lCustData = (LPARAM)CharSetList[SendMessage(GetDlgItem(hDlg, IDC_COMBO1), CB_GETCURSEL, 0, 0)];
+				ofn->lCustData = (LPARAM)CharSetList[SendMessageW(GetDlgItem(hDlg, IDC_COMBO1), CB_GETCURSEL, 0, 0)];
 			}
 
 			break;
 		}
 
 		case WM_INITDIALOG: {
-			SetWindowLongPtr(hDlg, GWLP_USERDATA, lParam);
+			SetWindowLongPtrW(hDlg, GWLP_USERDATA, lParam);
 
 			for (ptrdiff_t i = 0; i < CharSetLen; i++) {
 				CString s;
-				s.Format(_T("%s (%d)"), CharSetNames[i], CharSetList[i]);
-				SendMessage(GetDlgItem(hDlg, IDC_COMBO1), CB_ADDSTRING, 0, (LONG)(LPCTSTR)s);
+				s.Format(L"%s (%d)", CharSetNames[i], CharSetList[i]);
+				SendMessageW(GetDlgItem(hDlg, IDC_COMBO1), CB_ADDSTRING, 0, (LONG)(LPCTSTR)s);
 				if (CharSetList[i] == (int)((OPENFILENAME*)lParam)->lCustData) {
-					SendMessage(GetDlgItem(hDlg, IDC_COMBO1), CB_SETCURSEL, i, 0);
+					SendMessageW(GetDlgItem(hDlg, IDC_COMBO1), CB_SETCURSEL, i, 0);
 				}
 			}
 

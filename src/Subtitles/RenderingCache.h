@@ -1,5 +1,5 @@
 /*
- * (C) 2013-2014 see Authors.txt
+ * (C) 2013-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -36,7 +36,7 @@ private:
 public:
 	CRenderingCache(size_t maxSize) : m_maxSize(maxSize) {};
 
-	bool Lookup(KINARGTYPE key, _Out_ typename VTraits::OUTARGTYPE value) {
+	bool Lookup(typename KTraits::INARGTYPE key, _Out_ typename VTraits::OUTARGTYPE value) {
 		POSITION pos;
 		bool bFound = __super::Lookup(key, pos);
 
@@ -48,7 +48,7 @@ public:
 		return bFound;
 	};
 
-	POSITION SetAt(KINARGTYPE key, typename VTraits::INARGTYPE value) {
+	POSITION SetAt(typename KTraits::INARGTYPE key, typename VTraits::INARGTYPE value) {
 		POSITION pos;
 		bool bFound = __super::Lookup(key, pos);
 
@@ -142,9 +142,9 @@ protected:
 
 public:
 	CEllipseKey(int rx, int ry)
-		: m_rx(rx)
-		, m_ry(ry)
-		, m_hash(ULONG((rx << 16) | (ry& WORD_MAX))) {}
+		: m_hash(ULONG((rx << 16) | (ry & WORD_MAX)))
+		, m_rx(rx)
+		, m_ry(ry) {}
 
 	ULONG GetHash() const { return m_hash; };
 
@@ -190,4 +190,21 @@ public:
 	void UpdateHash();
 
 	bool operator==(const COverlayKey& overlayKey) const;
+};
+
+class CClipper;
+
+class CClipperKey
+{
+	ULONG m_hash;
+	std::shared_ptr<CClipper> m_clipper;
+
+public:
+	CClipperKey(const std::shared_ptr<CClipper>& clipper);
+
+	ULONG GetHash() const { return m_hash; };
+
+	void UpdateHash();
+
+	bool operator==(const CClipperKey& clipperKey) const;
 };

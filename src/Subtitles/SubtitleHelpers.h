@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -22,41 +22,36 @@
 #pragma once
 
 #include <afx.h>
-#include <atlcoll.h>
 #include <vector>
 
 namespace Subtitle
 {
-	static const std::vector<LPCTSTR> subTypesExt = {
-		_T("srt"), _T("sub"), _T("smi"), _T("psb"),
-		_T("ssa"), _T("ass"), _T("idx"), _T("usf"),
-		_T("xss"), _T("txt"), _T("rt"),  _T("sup"),
-		_T("vtt"), _T("mks")
+	static const LPCWSTR s_SubFileExts[] = {
+		L"srt", L"ass", L"ssa", L"sub", L"idx",
+		L"smi", L"sup", L"usf", L"vtt", L"psb",
+		L"xss", L"rt",  L"mks", L"lrc"
 	};
 
 	enum SubType {
 		SRT = 0,
-		SUB,
-		SMI,
-		PSB,
-		SSA,
 		ASS,
+		SSA,
+		SUB,
 		IDX,
-		USF,
-		XSS,
-		TXT,
-		RT,
+		SMI,
 		SUP,
-		VTT
+		USF,
+		VTT,
+		PSB,
+		XSS,
+		RT,
+		MKS,
+		LRC
 	};
 
-	LPCTSTR GetSubtitleFileExt(SubType type);
+	LPCWSTR GetSubtitleFileExt(SubType type);
 
-	struct SubFile {
-		CString fn; /*SubType type;*/
-	};
-
-	void GetSubFileNames(CString fn, const CAtlArray<CString>& paths, CAtlArray<SubFile>& ret);
+	void GetSubFileNames(CString fn, const std::vector<CString>& paths, std::vector<CString>& ret);
 
 	CString GuessSubtitleName(CString fn, CString videoName);
 };

@@ -1,5 +1,5 @@
 /*
- * (C) 2015 see Authors.txt
+ * (C) 2015-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include "../src/DSUtil/SysVersion.h"
+
 namespace
 {
     typedef enum MONITOR_DPI_TYPE {
@@ -32,6 +34,7 @@ namespace
     } MONITOR_DPI_TYPE;
 
     typedef HRESULT (WINAPI *tpGetDpiForMonitor)(HMONITOR hmonitor, MONITOR_DPI_TYPE dpiType, UINT* dpiX, UINT* dpiY);
+    typedef int (WINAPI *tpGetSystemMetricsForDpi)(int nIndex, UINT dpi);
 }
 
 // Definition: relative pixel = 1 pixel at 96 DPI and scaled based on actual DPI.
@@ -46,11 +49,11 @@ private:
 private:
     void Init()
     {
-        HDC hdc = GetDC(NULL);
+        HDC hdc = GetDC(nullptr);
         if (hdc) {
             m_dpiX = m_sdpiX = GetDeviceCaps(hdc, LOGPIXELSX);
             m_dpiY = m_sdpiY = GetDeviceCaps(hdc, LOGPIXELSY);
-            ReleaseDC(NULL, hdc);
+            ReleaseDC(nullptr, hdc);
         }
     }
 
@@ -87,16 +90,23 @@ public:
     // Convert a point size (1/72 of an inch) to raw pixels.
     inline int PointsToPixels(int pt) const { return MulDiv(pt, m_dpiY, 72); }
 
+    int GetSystemMetricsDPI(int nIndex)
+    {
+        if (SysVersion::IsWin10orLater()) {
+            static tpGetSystemMetricsForDpi pGetSystemMetricsForDpi = (tpGetSystemMetricsForDpi)GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetSystemMetricsForDpi");
+            if (pGetSystemMetricsForDpi) {
+                return pGetSystemMetricsForDpi(nIndex, GetDPIScalePercent());
+            }
+        }
+
+        return ScaleSystemToMonitorX(::GetSystemMetrics(nIndex));
+    }
+
 protected:
     void UseCurentMonitorDPI(HWND hWindow)
     {
-        static OSVERSIONINFO osvi = { sizeof(osvi) };
-        if (osvi.dwMajorVersion == 0) {
-            GetVersionEx(&osvi);
-        }
-
-        if (osvi.dwMajorVersion == 6 && osvi.dwMinorVersion >= 3 || osvi.dwMajorVersion > 6) {
-            static HMODULE hShcore = LoadLibrary(L"Shcore.dll");
+        if (SysVersion::IsWin8orLater()) {
+            static HMODULE hShcore = LoadLibraryW(L"Shcore.dll");
             if (hShcore) {
                 static tpGetDpiForMonitor pGetDpiForMonitor = (tpGetDpiForMonitor)GetProcAddress(hShcore, "GetDpiForMonitor");
                 if (pGetDpiForMonitor) {

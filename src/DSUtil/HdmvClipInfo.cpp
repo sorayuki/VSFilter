@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -22,12 +22,11 @@
 #include "HdmvClipInfo.h"
 #include "DSUtil.h"
 #include "GolombBuffer.h"
+#include <sys\stat.h>
 
 extern LCID	ISO6392ToLcid(LPCSTR code);
 
 CHdmvClipInfo::CHdmvClipInfo()
-	: m_hFile(INVALID_HANDLE_VALUE)
-	, m_bIsHdmv(false)
 {
 }
 
@@ -49,7 +48,7 @@ HRESULT CHdmvClipInfo::CloseFile(HRESULT hr)
 void CHdmvClipInfo::ReadBuffer(BYTE* pBuff, DWORD nLen)
 {
 	DWORD dwRead;
-	ReadFile(m_hFile, pBuff, nLen, &dwRead, NULL);
+	ReadFile(m_hFile, pBuff, nLen, &dwRead, nullptr);
 }
 
 DWORD CHdmvClipInfo::ReadDword()
@@ -80,7 +79,7 @@ BOOL CHdmvClipInfo::Skip(LONGLONG nLen)
 {
 	LARGE_INTEGER newPos = {0, 0};
 	newPos.QuadPart = nLen;
-	return SetFilePointerEx(m_hFile, newPos, NULL, FILE_CURRENT);
+	return SetFilePointerEx(m_hFile, newPos, nullptr, FILE_CURRENT);
 }
 
 BOOL CHdmvClipInfo::GetPos(LONGLONG& Pos)
@@ -95,49 +94,65 @@ BOOL CHdmvClipInfo::SetPos(LONGLONG Pos, DWORD dwMoveMethod/* = FILE_BEGIN*/)
 {
 	LARGE_INTEGER newPos = {0, 0};
 	newPos.QuadPart = Pos;
-	return SetFilePointerEx(m_hFile, newPos, NULL, dwMoveMethod);
+	return SetFilePointerEx(m_hFile, newPos, nullptr, dwMoveMethod);
+}
+
+HRESULT CHdmvClipInfo::ReadLang(Stream& s)
+{
+	ReadBuffer((BYTE*)s.m_LanguageCode, 3);
+	s.m_LCID = ISO6392ToLcid(s.m_LanguageCode);
+
+	return S_OK;
 }
 
 HRESULT CHdmvClipInfo::ReadProgramInfo()
 {
-	m_Streams.RemoveAll();
 	SetPos(ProgramInfo_start_address);
 
 	ReadDword();	//length
 	ReadByte();		//reserved_for_word_align
-	const BYTE number_of_program_sequences = (BYTE)ReadByte();
-	int iStream = 0;
+	const BYTE number_of_program_sequences = ReadByte();
 	for (size_t i = 0; i < number_of_program_sequences; i++) {
 		ReadDword();	//SPN_program_sequence_start
 		ReadShort();	//program_map_PID
-		const BYTE number_of_streams_in_ps = (BYTE)ReadByte(); //number_of_streams_in_ps
+		const BYTE number_of_streams_in_ps = ReadByte(); //number_of_streams_in_ps
 		ReadByte();		//reserved_for_future_use
 
 		LONGLONG Pos = 0;
-
 		for (size_t stream_index = 0; stream_index < number_of_streams_in_ps; stream_index++) {
-			m_Streams.SetCount(iStream + 1);
-			m_Streams[iStream].m_PID = ReadShort();	// stream_PID
+			Stream s;
+			s.m_PID = ReadShort();	// stream_PID
 
 			// StreamCodingInfo
 			GetPos(Pos);
 			Pos += ReadByte() + 1;	// length
-			m_Streams[iStream].m_Type = (PES_STREAM_TYPE)ReadByte();
+			s.m_Type = (PES_STREAM_TYPE)ReadByte();
 
-			switch (m_Streams[iStream].m_Type) {
+			BOOL bFoundStream = FALSE;
+			for (const auto& stream : m_Streams) {
+				if (s.m_PID == stream.m_PID) {
+					SetPos(Pos);
+					bFoundStream = TRUE;
+					break;
+				}
+			}
+
+			if (bFoundStream) {
+				continue;
+			}
+
+			switch (s.m_Type) {
 				case VIDEO_STREAM_MPEG1:
 				case VIDEO_STREAM_MPEG2:
 				case VIDEO_STREAM_H264:
+				case VIDEO_STREAM_H264_MVC:
+				case VIDEO_STREAM_HEVC:
 				case VIDEO_STREAM_VC1: {
-						BYTE Temp = ReadByte();
-						BDVM_VideoFormat VideoFormat     = (BDVM_VideoFormat)(Temp >> 4);
-						BDVM_FrameRate FrameRate         = (BDVM_FrameRate)(Temp & 0xf);
-						Temp                             = ReadByte();
-						BDVM_AspectRatio AspectRatio     = (BDVM_AspectRatio)(Temp >> 4);
-
-						m_Streams[iStream].m_VideoFormat = VideoFormat;
-						m_Streams[iStream].m_FrameRate   = FrameRate;
-						m_Streams[iStream].m_AspectRatio = AspectRatio;
+						BYTE Temp       = ReadByte();
+						s.m_VideoFormat = (BDVM_VideoFormat)(Temp >> 4);
+						s.m_FrameRate   = (BDVM_FrameRate)(Temp & 0xf);
+						Temp            = ReadByte();
+						s.m_AspectRatio = (BDVM_AspectRatio)(Temp >> 4);
 					}
 					break;
 				case AUDIO_STREAM_MPEG1:
@@ -151,36 +166,26 @@ HRESULT CHdmvClipInfo::ReadProgramInfo()
 				case AUDIO_STREAM_DTS_HD_MASTER_AUDIO:
 				case SECONDARY_AUDIO_AC3_PLUS:
 				case SECONDARY_AUDIO_DTS_HD: {
-						BYTE Temp = ReadByte();
-						BDVM_ChannelLayout ChannelLayout     = (BDVM_ChannelLayout)(Temp >> 4);
-						BDVM_SampleRate SampleRate           = (BDVM_SampleRate)(Temp & 0xF);
+						BYTE Temp         = ReadByte();
+						s.m_ChannelLayout = (BDVM_ChannelLayout)(Temp >> 4);
+						s.m_SampleRate    = (BDVM_SampleRate)(Temp & 0xF);
 
-						ReadBuffer((BYTE*)m_Streams[iStream].m_LanguageCode, 3);
-						m_Streams[iStream].m_LanguageCode[3] = '\0';
-						m_Streams[iStream].m_LCID            = ISO6392ToLcid(m_Streams[iStream].m_LanguageCode);
-						m_Streams[iStream].m_ChannelLayout   = ChannelLayout;
-						m_Streams[iStream].m_SampleRate      = SampleRate;
+						ReadLang(s);
 					}
 					break;
 				case PRESENTATION_GRAPHICS_STREAM:
-				case INTERACTIVE_GRAPHICS_STREAM: {
-						ReadBuffer((BYTE*)m_Streams[iStream].m_LanguageCode, 3);
-						m_Streams[iStream].m_LanguageCode[3] = '\0';
-						m_Streams[iStream].m_LCID            = ISO6392ToLcid(m_Streams[iStream].m_LanguageCode);
-					}
+				case INTERACTIVE_GRAPHICS_STREAM:
+					ReadLang(s);
 					break;
-				case SUBTITLE_STREAM: {
-						ReadByte(); // Should this really be here?
-						ReadBuffer((BYTE*)m_Streams[iStream].m_LanguageCode, 3);
-						m_Streams[iStream].m_LanguageCode[3] = '\0';
-						m_Streams[iStream].m_LCID            = ISO6392ToLcid(m_Streams[iStream].m_LanguageCode);
-					}
+				case SUBTITLE_STREAM:
+					ReadByte(); // bd_char_code
+					ReadLang(s);
 					break;
 				default :
 					break;
 			}
 
-			iStream++;
+			m_Streams.emplace_back(s);
 			SetPos(Pos);
 		}
 	}
@@ -188,11 +193,34 @@ HRESULT CHdmvClipInfo::ReadProgramInfo()
 	return S_OK;
 }
 
-HRESULT CHdmvClipInfo::ReadCpiInfo(CAtlArray<SyncPoint>* sps)
+HRESULT CHdmvClipInfo::ReadCpiInfo(SyncPoints& sps)
 {
-	sps->RemoveAll();
+	sps.clear();
 
-	CAtlArray<ClpiEpMapEntry> ClpiEpMapList;
+	struct ClpiEpCoarse {
+		UINT  ref_ep_fine_id;
+		WORD  pts_ep;
+		DWORD spn_ep;
+	};
+
+	struct ClpiEpFine {
+		BYTE is_angle_change_point;
+		BYTE i_end_position_offset;
+		WORD pts_ep;
+		UINT spn_ep;
+	};
+
+	struct ClpiEpMapEntry {
+		WORD  pid;
+		BYTE  ep_stream_type;
+		WORD  num_ep_coarse;
+		UINT  num_ep_fine;
+		DWORD ep_map_stream_start_addr;
+
+		std::vector<ClpiEpCoarse> coarse;
+		std::vector<ClpiEpFine>   fine;
+	};
+	std::vector<ClpiEpMapEntry> ClpiEpMapList;
 
 	SetPos(Cpi_start_addrress);
 
@@ -211,88 +239,72 @@ HRESULT CHdmvClipInfo::ReadCpiInfo(CAtlArray<SyncPoint>* sps)
 	BYTE* buf = DNew BYTE[size];
 	ReadBuffer(buf, size);
 	CGolombBuffer gb(buf, size);
-	for (int i = 0; i < num_stream_pid; i++) {
+	for (BYTE i = 0; i < num_stream_pid; i++) {
 		ClpiEpMapEntry em;
 
-		em.pid                      = gb.ReadShort();
+		em.pid                      = gb.BitRead(16);
 		gb.BitRead(10);
 		em.ep_stream_type           = gb.BitRead(4);
-		em.num_ep_coarse            = gb.ReadShort();
+		em.num_ep_coarse            = gb.BitRead(16);
 		em.num_ep_fine              = gb.BitRead(18);
 		em.ep_map_stream_start_addr = gb.ReadDword() + ep_map_pos;
 
-		em.coarse                   = DNew ClpiEpCoarse[em.num_ep_coarse];
-		em.fine                     = DNew ClpiEpFine[em.num_ep_fine];
+		em.coarse.resize(em.num_ep_coarse);
+		em.fine.resize(em.num_ep_fine);
 
-		ClpiEpMapList.Add(em);
+		ClpiEpMapList.emplace_back(em);
 	}
 	SAFE_DELETE_ARRAY(buf);
 
-	for (int i = 0; i < num_stream_pid; i++) {
-		ClpiEpMapEntry* em = &ClpiEpMapList[i];
-
-		SetPos(em->ep_map_stream_start_addr);
+	for (auto& em : ClpiEpMapList) {
+		SetPos(em.ep_map_stream_start_addr);
 		const DWORD fine_start = ReadDword();
 
-		size = em->num_ep_coarse * 8;
+		size = em.num_ep_coarse * 8;
 		buf = DNew BYTE[size];
 		ReadBuffer(buf, size);
 		gb.Reset(buf, size);
 
-		for (int j = 0; j < em->num_ep_coarse; j++) {
-			em->coarse[j].ref_ep_fine_id = gb.BitRead(18);
-			em->coarse[j].pts_ep         = gb.BitRead(14);
-			em->coarse[j].spn_ep         = gb.ReadDword();
+		for (WORD j = 0; j < em.num_ep_coarse; j++) {
+			em.coarse[j].ref_ep_fine_id = gb.BitRead(18);
+			em.coarse[j].pts_ep         = gb.BitRead(14);
+			em.coarse[j].spn_ep         = gb.ReadDword();
 		}
 		SAFE_DELETE_ARRAY(buf);
 
-		SetPos(em->ep_map_stream_start_addr + fine_start);
+		SetPos(em.ep_map_stream_start_addr + fine_start);
 
-		size = em->num_ep_fine * 4;
+		size = em.num_ep_fine * 4;
 		buf = DNew BYTE[size];
 		ReadBuffer(buf, size);
 		gb.Reset(buf, size);
 
-		for (int j = 0; j < em->num_ep_fine; j++) {
-			em->fine[j].is_angle_change_point = gb.BitRead(1);
-			em->fine[j].i_end_position_offset = gb.BitRead(3);
-			em->fine[j].pts_ep                = gb.BitRead(11);
-			em->fine[j].spn_ep                = gb.BitRead(17);
+		for (UINT j = 0; j < em.num_ep_fine; j++) {
+			em.fine[j].is_angle_change_point = gb.BitRead(1);
+			em.fine[j].i_end_position_offset = gb.BitRead(3);
+			em.fine[j].pts_ep                = gb.BitRead(11);
+			em.fine[j].spn_ep                = gb.BitRead(17);
 		}
 		SAFE_DELETE_ARRAY(buf);
 	}
 
-	if (!ClpiEpMapList.IsEmpty()) {
-		const ClpiEpMapEntry* entry = &ClpiEpMapList[0];
-		for (int i = 0; i < entry->num_ep_coarse; i++) {
-			int start, end;
+	if (!ClpiEpMapList.empty()) {
+		const auto& entry = ClpiEpMapList[0];
+		for (WORD coarse_index = 0; coarse_index < entry.num_ep_coarse; coarse_index++) {
+			const auto& coarse = entry.coarse[coarse_index];
+			const auto& start = coarse.ref_ep_fine_id;
+			const auto& end = (coarse_index < entry.num_ep_coarse - 1) ? entry.coarse[coarse_index + 1].ref_ep_fine_id : entry.num_ep_fine;
+			const auto coarse_pts = (uint32_t)(coarse.pts_ep & ~0x01) << 18;
 
-			const ClpiEpCoarse* coarse = &entry->coarse[i];
-			start = coarse->ref_ep_fine_id;
-			if (i < entry->num_ep_coarse - 1) {
-				end = entry->coarse[i+1].ref_ep_fine_id;
-			} else {
-				end = entry->num_ep_fine;
-			}
+			for (UINT fine_index = start; fine_index < end; fine_index++) {
+				const auto pts = coarse_pts + ((uint32_t)entry.fine[fine_index].pts_ep << 8);
+				const auto spn = (coarse.spn_ep & ~0x1FFFF) + entry.fine[fine_index].spn_ep;
 
-			for (int j = start; j < end; j++) {
-				const ClpiEpFine* fine = &entry->fine[j];
-				const UINT64 pts = ((UINT64)(coarse->pts_ep & ~0x01) << 18) +
-				                   ((UINT64)fine->pts_ep << 8);
-				const UINT32 spn = (coarse->spn_ep & ~0x1FFFF) + fine->spn_ep;
-
-				SyncPoint sp = {REFERENCE_TIME(20000.0f * pts / 90), (__int64)spn * 192};
-				sps->Add(sp);
+				const SyncPoint sp{llMulDiv(pts, 2000, 9, 0), (__int64)spn * 192 + 4};
+				sps.push_back(sp);
 			}
 		}
 	}
-
-	for (size_t i = 0; i < ClpiEpMapList.GetCount(); i++) {
-		SAFE_DELETE_ARRAY(ClpiEpMapList[i].coarse);
-		SAFE_DELETE_ARRAY(ClpiEpMapList[i].fine);
-	}
-
-	ClpiEpMapList.RemoveAll();
 
 	return S_OK;
 }
@@ -300,11 +312,12 @@ HRESULT CHdmvClipInfo::ReadCpiInfo(CAtlArray<SyncPoint>* sps)
 #define dwShareMode          FILE_SHARE_READ | FILE_SHARE_WRITE
 #define dwFlagsAndAttributes FILE_ATTRIBUTE_READONLY | FILE_FLAG_SEQUENTIAL_SCAN
 
-HRESULT CHdmvClipInfo::ReadInfo(LPCTSTR strFile, CAtlArray<SyncPoint>* sps)
+#define CheckVer() (!(memcmp(Buff, "0300", 4)) || (!memcmp(Buff, "0200", 4)) || (!memcmp(Buff, "0100", 4)))
+
+HRESULT CHdmvClipInfo::ReadInfo(LPCWSTR strFile, SyncPoints* sps/* = nullprt*/)
 {
-	m_bIsHdmv = false;
-	m_hFile   = CreateFile(strFile, GENERIC_READ, dwShareMode, NULL,
-						   OPEN_EXISTING, dwFlagsAndAttributes, NULL);
+	m_hFile = CreateFileW(strFile, GENERIC_READ, dwShareMode, nullptr,
+						  OPEN_EXISTING, dwFlagsAndAttributes, nullptr);
 	if (m_hFile != INVALID_HANDLE_VALUE) {
 		BYTE Buff[4] = { 0 };
 
@@ -314,21 +327,43 @@ HRESULT CHdmvClipInfo::ReadInfo(LPCTSTR strFile, CAtlArray<SyncPoint>* sps)
 		}
 
 		ReadBuffer(Buff, 4);
-		if ((memcmp(Buff, "0200", 4)) && (memcmp(Buff, "0100", 4))) {
+		if (!CheckVer()) {
 			return CloseFile(VFW_E_INVALID_FILE_FORMAT);
 		}
 
-		SequenceInfo_start_address = ReadDword();
+		ReadDword(); // sequence_info_start_address
 		ProgramInfo_start_address  = ReadDword();
 		Cpi_start_addrress         = ReadDword();
+		ReadDword(); // clip_mark_start_address
+		Ext_data_start_address     = ReadDword();
 
 		ReadProgramInfo();
 
-		if (sps) {
-			ReadCpiInfo(sps);
+		if (Ext_data_start_address) {
+			SetPos(Ext_data_start_address);
+			ReadDword();					// lenght
+			ReadDword();					// start address
+			ReadShort(); ReadByte();		// padding
+			BYTE nNumEntries = ReadByte();	// number of entries
+			for (BYTE i = 0; i < nNumEntries; i++) {
+				UINT id1 = ReadShort();
+				UINT id2 = ReadShort();
+				LONGLONG extsubPos = Ext_data_start_address;
+				extsubPos += ReadDword();	// Extension_start_address
+				ReadDword();				// Extension_length
+				if (id1 == 2) {
+					if (id2 == 5) {
+						ProgramInfo_start_address = extsubPos;
+						ReadProgramInfo();
+						break;
+					}
+				}
+			}
 		}
 
-		m_bIsHdmv = true;
+		if (sps) {
+			ReadCpiInfo(*sps);
+		}
 
 		return CloseFile(S_OK);
 	}
@@ -338,72 +373,194 @@ HRESULT CHdmvClipInfo::ReadInfo(LPCTSTR strFile, CAtlArray<SyncPoint>* sps)
 
 CHdmvClipInfo::Stream* CHdmvClipInfo::FindStream(SHORT wPID)
 {
-	size_t nStreams = m_Streams.GetCount();
-	for (size_t i = 0; i < nStreams; i++) {
-		if (m_Streams[i].m_PID == wPID) {
-			return &m_Streams[i];
+	for (auto& stream : m_Streams) {
+		if (stream.m_PID == wPID) {
+			return &stream;
 		}
 	}
 
-	return NULL;
+	return nullptr;
 }
 
-LPCTSTR CHdmvClipInfo::Stream::Format()
+HRESULT CHdmvClipInfo::ReadStreamInfo()
 {
-	switch (m_Type) {
-		case VIDEO_STREAM_MPEG1:
-			return _T("Mpeg1");
-		case VIDEO_STREAM_MPEG2:
-			return _T("Mpeg2");
-		case VIDEO_STREAM_H264:
-			return _T("H264");
-		case VIDEO_STREAM_VC1:
-			return _T("VC-1");
-		case AUDIO_STREAM_MPEG1:
-			return _T("MPEG1");
-		case AUDIO_STREAM_MPEG2:
-			return _T("MPEG2");
-		case AUDIO_STREAM_LPCM:
-			return _T("LPCM");
-		case AUDIO_STREAM_AC3:
-			return _T("AC3");
-		case AUDIO_STREAM_DTS:
-			return _T("DTS");
-		case AUDIO_STREAM_AC3_TRUE_HD:
-			return _T("MLP");
-		case AUDIO_STREAM_AC3_PLUS:
-			return _T("DD+");
-		case AUDIO_STREAM_DTS_HD:
-			return _T("DTS-HD");
-		case AUDIO_STREAM_DTS_HD_MASTER_AUDIO:
-			return _T("DTS-HD XLL");
-		case SECONDARY_AUDIO_AC3_PLUS:
-			return _T("Sec DD+");
-		case SECONDARY_AUDIO_DTS_HD:
-			return _T("Sec DTS-HD");
-		case PRESENTATION_GRAPHICS_STREAM :
-			return _T("PG");
-		case INTERACTIVE_GRAPHICS_STREAM :
-			return _T("IG");
-		case SUBTITLE_STREAM :
-			return _T("Text");
-		default :
-			return _T("Unknown");
+	BYTE len = ReadByte();
+	LONGLONG Pos = 0;
+	GetPos(Pos);
+
+	Stream s;
+	const BYTE stream_type = ReadByte();
+	switch (stream_type) {
+		case 1:
+			s.m_PID = ReadShort();
+			break;
+		case 2:
+		case 4:
+			ReadShort();
+			s.m_PID = ReadShort();
+			break;
+		case 3:
+			ReadByte();
+			s.m_PID = ReadShort();
+			break;
 	}
+
+	if (!SetPos(Pos + len)) {
+		return E_FAIL;
+	}
+
+	len = ReadByte();
+	GetPos(Pos);
+
+	for (const auto& stream : stn.m_Streams) {
+		if (s.m_PID == stream.m_PID) {
+			return SetPos(Pos + len) ? S_OK : E_FAIL;
+		}
+	}
+
+	s.m_Type = (PES_STREAM_TYPE)ReadByte();
+	switch (s.m_Type) {
+		case VIDEO_STREAM_MPEG1:
+		case VIDEO_STREAM_MPEG2:
+		case VIDEO_STREAM_H264:
+		case VIDEO_STREAM_H264_MVC:
+		case VIDEO_STREAM_HEVC:
+		case VIDEO_STREAM_VC1: {
+				const BYTE Temp = ReadByte();
+				s.m_VideoFormat = (BDVM_VideoFormat)(Temp >> 4);
+				s.m_FrameRate   = (BDVM_FrameRate)(Temp & 0xf);
+			}
+			break;
+		case AUDIO_STREAM_MPEG1:
+		case AUDIO_STREAM_MPEG2:
+		case AUDIO_STREAM_LPCM:
+		case AUDIO_STREAM_AC3:
+		case AUDIO_STREAM_DTS:
+		case AUDIO_STREAM_AC3_TRUE_HD:
+		case AUDIO_STREAM_AC3_PLUS:
+		case AUDIO_STREAM_DTS_HD:
+		case AUDIO_STREAM_DTS_HD_MASTER_AUDIO:
+		case SECONDARY_AUDIO_AC3_PLUS:
+		case SECONDARY_AUDIO_DTS_HD: {
+				const BYTE Temp   = ReadByte();
+				s.m_ChannelLayout = (BDVM_ChannelLayout)(Temp >> 4);
+				s.m_SampleRate    = (BDVM_SampleRate)(Temp & 0xF);
+
+				ReadLang(s);
+			}
+			break;
+		case PRESENTATION_GRAPHICS_STREAM:
+		case INTERACTIVE_GRAPHICS_STREAM:
+			ReadLang(s);
+			break;
+		case SUBTITLE_STREAM:
+			ReadByte(); // bd_char_code
+			ReadLang(s);
+			break;
+	}
+
+	stn.m_Streams.emplace_back(s);
+
+	return SetPos(Pos + len) ? S_OK : E_FAIL;
 }
 
-HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtDuration, CPlaylist& Playlist, BOOL bFullInfoRead/* = FALSE*/, BYTE* MVC_Base_View_R_flag/* = NULL*/)
+HRESULT CHdmvClipInfo::ReadSTNInfo()
 {
+	ReadShort(); // length
+	ReadShort(); // reserved_for_future_use
 
+	stn.num_video           = ReadByte(); // number of Primary Video Streams
+	stn.num_audio           = ReadByte(); // number of Primary Audio Streams
+	stn.num_pg              = ReadByte(); // number of Presentation Graphic Streams
+	stn.num_ig              = ReadByte(); // number of Interactive Graphic Streams
+	stn.num_secondary_audio = ReadByte(); // number of Secondary Audio Streams
+	stn.num_secondary_video = ReadByte(); // number of Secondary Video Streams
+	stn.num_pip_pg          = ReadByte(); // number of Presentation Graphic Streams
+
+	Skip(5); // reserved_for_future_use
+
+	for (BYTE i = 0; i < stn.num_video; i++) {
+		if (FAILED(ReadStreamInfo())) {
+			return E_FAIL;
+		}
+	}
+
+	for (BYTE i = 0; i < stn.num_audio; i++) {
+		if (FAILED(ReadStreamInfo())) {
+			return E_FAIL;
+		}
+	}
+
+	for (BYTE i = 0; i < (stn.num_pg + stn.num_pip_pg); i++) {
+		if (FAILED(ReadStreamInfo())) {
+			return E_FAIL;
+		}
+	}
+
+	for (BYTE i = 0; i < stn.num_ig; i++) {
+		if (FAILED(ReadStreamInfo())) {
+			return E_FAIL;
+		}
+	}
+
+	for (BYTE i = 0; i < stn.num_secondary_audio; i++) {
+		if (FAILED(ReadStreamInfo())) {
+			return E_FAIL;
+		}
+
+		// Secondary Audio Extra Attributes
+		const BYTE num_secondary_audio_extra = ReadByte();
+		ReadByte();
+		if (num_secondary_audio_extra) {
+			Skip(num_secondary_audio_extra);
+			if (num_secondary_audio_extra % 2) {
+				ReadByte();
+			}
+		}
+	}
+
+	for (BYTE i = 0; i < stn.num_secondary_video; i++) {
+		if (FAILED(ReadStreamInfo())) {
+			return E_FAIL;
+		}
+
+		// Secondary Video Extra Attributes
+		const BYTE num_secondary_video_extra = ReadByte();
+		ReadByte();
+		if (num_secondary_video_extra) {
+			Skip(num_secondary_video_extra);
+			if (num_secondary_video_extra % 2) {
+				ReadByte();
+			}
+		}
+
+		const BYTE num_pip_pg_extra = ReadByte();
+		ReadByte();
+		if (num_pip_pg_extra) {
+			Skip(num_pip_pg_extra);
+			if (num_pip_pg_extra % 2) {
+				ReadByte();
+			}
+		}
+	}
+
+	return S_OK;
+}
+
+HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtDuration, CPlaylist& Playlist, BOOL bReadMVCExtension/* = FALSE*/, BOOL bFullInfoRead/* = FALSE*/, BYTE* MVC_Base_View_R_flag/* = nullptr*/)
+{
 	CPath Path(strPlaylistFile);
 	rtDuration = 0;
+
+	m_Streams.clear();
+	stn.m_Streams.clear();
 
 	// Get BDMV folder
 	Path.RemoveFileSpec();
 	Path.RemoveFileSpec();
 
-	m_hFile = CreateFile(strPlaylistFile, GENERIC_READ, dwShareMode, NULL,
-						 OPEN_EXISTING, dwFlagsAndAttributes, NULL);
+	m_hFile = CreateFileW(strPlaylistFile, GENERIC_READ, dwShareMode, nullptr,
+						  OPEN_EXISTING, dwFlagsAndAttributes, nullptr);
 	if (m_hFile != INVALID_HANDLE_VALUE) {
 		bool bDuplicate = false;
 		BYTE Buff[9] = { 0 };
@@ -414,11 +571,15 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 		}
 
 		ReadBuffer(Buff, 4);
-		if ((memcmp(Buff, "0200", 4)) && (memcmp(Buff, "0100", 4))) {
+		if (!CheckVer()) {
 			return CloseFile(VFW_E_INVALID_FILE_FORMAT);
 		}
 
-		DbgLog((LOG_TRACE, 3, L"CHdmvClipInfo::ReadPlaylist() : '%s'", strPlaylistFile));
+		LARGE_INTEGER size = {};
+		GetFileSizeEx(m_hFile, &size);
+		Playlist.m_mpls_size = size.QuadPart;
+
+		DLog(L"CHdmvClipInfo::ReadPlaylist() : '%s'", strPlaylistFile);
 
 		LONGLONG playlistPos = 0;
 		LONGLONG extPos = 0;
@@ -445,12 +606,13 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 		struct ext_sub_path {
 			BYTE type;
 			BYTE playitem_count;
+			std::vector<CString> extFileNames;
 		};
-		CAtlArray<ext_sub_path> ext_sub_paths;
+		std::vector<ext_sub_path> ext_sub_paths;
 
 		// Extension
 		LONGLONG stnssextPos = 0;
-		if (extPos) {
+		if (extPos && bReadMVCExtension) {
 			SetPos(extPos);
 			ReadDword();					// lenght
 			ReadDword();					// start address
@@ -485,7 +647,22 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 							_ext_sub_path.type = ReadByte();
 							ReadShort();ReadByte();
 							_ext_sub_path.playitem_count = ReadByte();
-							ext_sub_paths.Add(_ext_sub_path);
+
+							LONGLONG savePos = 0;
+							for (BYTE ii = 0; ii < _ext_sub_path.playitem_count; ii++) {
+								GetPos(savePos);
+								savePos += ReadShort() + 2;
+								ReadBuffer(Buff, 9); // M2TS file name
+								if (!memcmp(&Buff[5], "M2TS", 4)) {
+									CString fileName;
+									fileName.Format(L"%s\\STREAM\\%c%c%c%c%c.M2TS", CString(Path), Buff[0], Buff[1], Buff[2], Buff[3], Buff[4]);
+									_ext_sub_path.extFileNames.emplace_back(fileName);
+								}
+
+								SetPos(savePos);
+							}
+
+							ext_sub_paths.emplace_back(_ext_sub_path);
 
 							SetPos(saveextpathPos);
 						}
@@ -504,8 +681,8 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 		ReadShort();						// number_of_SubPaths
 
 		BOOL bHaveMVCExtension = FALSE;
-		for (size_t i = 0; i < ext_sub_paths.GetCount(); i++) {
-			if (ext_sub_paths[i].type == 8 && ext_sub_paths[i].playitem_count == nPlaylistItems) {
+		for (const auto& ext_sub : ext_sub_paths) {
+			if (ext_sub.type == 8 && ext_sub.playitem_count == nPlaylistItems) {
 				bHaveMVCExtension = TRUE;
 				break;
 			}
@@ -514,7 +691,6 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 		playlistPos += 10;
 		__int64 TotalSize = 0;
 		for (size_t i = 0; i < nPlaylistItems; i++) {
-			CAutoPtr<PlaylistItem> Item(DNew PlaylistItem);
 			SetPos(playlistPos);
 			playlistPos += ReadShort() + 2;
 			ReadBuffer(Buff, 9); // M2TS file name
@@ -526,9 +702,11 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 			if (bHaveMVCExtension) {
 				format = L"%s\\STREAM\\SSIF\\%c%c%c%c%c.SSIF";
 			}
-			Item->m_strFileName.Format(format, CString(Path), Buff[0], Buff[1], Buff[2], Buff[3], Buff[4]);
-			if (!::PathFileExists(Item->m_strFileName)) {
-				DbgLog((LOG_TRACE, 3, L"    ==> '%s' is missing, skip it", Item->m_strFileName));
+
+			PlaylistItem Item;
+			Item.m_strFileName.Format(format, CString(Path), Buff[0], Buff[1], Buff[2], Buff[3], Buff[4]);
+			if (!::PathFileExists(Item.m_strFileName)) {
+				DLog(L"    ==> '%s' is missing, skip it", Item.m_strFileName);
 
 				stnssextPos = 0;
 				continue;
@@ -537,17 +715,17 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 			ReadBuffer(Buff, 3);
 			const BYTE is_multi_angle = (Buff[1] >> 4) & 0x1;
 
-			Item->m_rtIn  = REFERENCE_TIME(20000.0f * ReadDword() / 90);
-			Item->m_rtOut = REFERENCE_TIME(20000.0f * ReadDword() / 90);
+			Item.m_rtIn  = REFERENCE_TIME(20000.0f * ReadDword() / 90);
+			Item.m_rtOut = REFERENCE_TIME(20000.0f * ReadDword() / 90);
 
-			Item->m_rtStartTime	= rtDuration;
+			Item.m_rtStartTime	= rtDuration;
 
-			rtDuration += (Item->m_rtOut - Item->m_rtIn);
+			rtDuration += (Item.m_rtOut - Item.m_rtIn);
 
-			ReadBuffer(Buff, 8);		// mpls uo
+			Skip(8);		// mpls uo
 			ReadByte();
-			ReadByte();					// still mode
-			ReadShort();				// still time
+			ReadByte();		// still mode
+			ReadShort();	// still time
 			BYTE angle_count = 1;
 			if (is_multi_angle) {
 				angle_count = ReadByte();
@@ -557,64 +735,51 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 				ReadByte();
 			}
 			for (BYTE i = 1; i < angle_count; i++) {
-				ReadBuffer(Buff, 9);	// M2TS file name
-				ReadByte();				// stc_id
+				Skip(9);	// M2TS file name
+				ReadByte();	// stc_id
 			}
 
 			// stn
-			ReadShort();					// length
-			ReadShort();					// reserved_for_future_use
-			Item->m_num_video = ReadByte();	// number of Primary Video Streams
-			ReadByte();						// number of Primary Audio Streams
-			Item->m_num_pg = ReadByte();	// number of Presentation Graphic Streams
-			Item->m_num_ig = ReadByte();	// number of Interactive Graphic Streams
+			ReadSTNInfo();
 
-			Item->m_pg_offset_sequence_id.SetCount(Item->m_num_pg);
-			for (size_t i = 0; i < Item->m_num_pg; i++) {
-				Item->m_pg_offset_sequence_id[i] = 0xff;
-			}
-			Item->m_ig_offset_sequence_id.SetCount(Item->m_num_ig);
-			for (size_t i = 0; i < Item->m_num_ig; i++) {
-				Item->m_ig_offset_sequence_id[i] = 0xff;
-			}
+			Item.m_num_video = stn.num_video;
+			Item.m_num_streams = stn.num_video + stn.num_audio + stn.num_pg + stn.num_pip_pg;
+
+			Item.m_pg_offset_sequence_id.resize(stn.num_pg, 0xFF);
+			Item.m_ig_offset_sequence_id.resize(stn.num_ig, 0xFF);
 
 			if (bFullInfoRead) {
 				LARGE_INTEGER size = {0, 0};
-				HANDLE hFile = CreateFile(Item->m_strFileName, GENERIC_READ, dwShareMode, NULL,
-										  OPEN_EXISTING, dwFlagsAndAttributes, NULL);
+				HANDLE hFile = CreateFileW(Item.m_strFileName, GENERIC_READ, dwShareMode, nullptr,
+										   OPEN_EXISTING, dwFlagsAndAttributes, nullptr);
 				if (hFile != INVALID_HANDLE_VALUE) {
 					GetFileSizeEx(hFile, &size);
 					CloseHandle(hFile);
 				}
 
-				Item->m_SizeIn  = TotalSize;
-				TotalSize       += size.QuadPart;
-				Item->m_SizeOut = TotalSize;
+				Item.m_SizeIn  = TotalSize;
+				TotalSize     += size.QuadPart;
+				Item.m_SizeOut = TotalSize;
 			}
 
-			POSITION pos = Playlist.GetHeadPosition();
-			while (pos) {
-				PlaylistItem* pItem = Playlist.GetNext(pos);
-				if (*pItem == *Item) {
-					bDuplicate = true;
-					break;
-				}
+			if (std::find(Playlist.cbegin(), Playlist.cend(), Item) != Playlist.cend()) {
+				bDuplicate = true;
 			}
 
-			DbgLog((LOG_TRACE, 3, L"    ==> '%s', Duration : %s [%15I64d], Total duration : %s, Size : %I64d", Item->m_strFileName, ReftimeToString(Item->Duration()), Item->Duration(), ReftimeToString(rtDuration), Item->Size()));
+			CString sizeStr;
+			if (bFullInfoRead) {
+				sizeStr.Format(L", Size : %I64d", Item.Size());
+			}
+			DLog(L"    ==> '%s', Duration : %s [%15I64d], Total duration : %s%s", Item.m_strFileName, ReftimeToString(Item.Duration()), Item.Duration(), ReftimeToString(rtDuration), sizeStr);
 
-			Playlist.AddTail(Item);
+			Playlist.emplace_back(Item);
 		}
 
 		// stn ss extension
-		if (bFullInfoRead && stnssextPos && !Playlist.IsEmpty()) {
+		if (bFullInfoRead && stnssextPos && !Playlist.empty()) {
 			SetPos(stnssextPos);
 
-			int i = 0;
-			POSITION pos = Playlist.GetHeadPosition();
-			while (pos) {
-				PlaylistItem* pItem = Playlist.GetNext(pos);
-
+			for (auto& Item : Playlist) {
 				SHORT lenght = ReadShort();
 				BYTE* buf = DNew BYTE[lenght];
 				ReadBuffer(buf, lenght);
@@ -623,7 +788,7 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 				int Fixed_offset_during_PopUp_flag = gb.BitRead(1);
 				gb.BitRead(15); // reserved
 
-				for (i = 0; i < pItem->m_num_video; i++) {
+				for (BYTE i = 0; i < Item.m_num_video; i++) {
 					// stream_entry
 					BYTE slen = gb.ReadByte();
 					gb.SkipBytes(slen);
@@ -636,8 +801,8 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 					gb.BitRead(6);  // number_of_offset_sequences
 				}
 
-				for (i = 0; i < pItem->m_num_pg; i++) {
-					pItem->m_pg_offset_sequence_id[i] = gb.ReadByte();
+				for (auto& id : Item.m_pg_offset_sequence_id) {
+					id = gb.ReadByte();
 
 					gb.BitRead(4); // reserved
 					gb.BitRead(1); // dialog_region_offset_valid_flag
@@ -676,11 +841,11 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 					}
 				}
 
-				for (i = 0; i < pItem->m_num_ig; i++) {
+				for (auto& id : Item.m_ig_offset_sequence_id) {
 					if (Fixed_offset_during_PopUp_flag) {
 						gb.ReadByte();
 					} else {
-						pItem->m_ig_offset_sequence_id[i] = gb.ReadByte();
+						id = gb.ReadByte();
 					}
 
 					gb.BitRead(16); // IG_Plane_offset_during_BB_video
@@ -706,11 +871,9 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 
 		CloseFile(S_OK);
 
-		if (bFullInfoRead) {
-			POSITION pos = Playlist.GetHeadPosition();
-			while (pos) {
-				PlaylistItem* pItem = Playlist.GetNext(pos);
-				CString fname = pItem->m_strFileName;
+		if (bFullInfoRead && !Playlist.empty()) {
+			for (auto& Item : Playlist) {
+				CString fname = Item.m_strFileName;
 				if (fname.Find(L".SSIF") > 0) {
 					fname.Replace(L"\\STREAM\\SSIF\\", L"\\CLIPINF\\");
 					fname.Replace(L".SSIF", L".CLPI");
@@ -719,11 +882,50 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 					fname.Replace(L".M2TS", L".CLPI");
 				}
 
-				ReadInfo(fname, &pItem->m_sps);
+				ReadInfo(fname, &Item.m_sps);
+			}
+
+			if (!ext_sub_paths.empty()) {
+				for (auto& ext_sub : ext_sub_paths) {
+					for (auto& extFileName : ext_sub.extFileNames) {
+						CString fname = extFileName;
+						fname.Replace(L"\\STREAM\\", L"\\CLIPINF\\");
+						fname.Replace(L".M2TS", L".CLPI");
+
+						ReadInfo(fname);
+					}
+				}
 			}
 		}
 
-		return Playlist.IsEmpty() ? E_FAIL : bDuplicate ? S_FALSE : S_OK;
+		if (!stn.m_Streams.empty()) {
+			for (const auto& stream : stn.m_Streams) {
+				switch (stream.m_VideoFormat) {
+					case BDVM_VideoFormat_480i:
+					case BDVM_VideoFormat_480p:
+						Playlist.m_max_video_res = std::max(Playlist.m_max_video_res, 480u);
+						break;
+					case BDVM_VideoFormat_576i:
+					case BDVM_VideoFormat_576p:
+						Playlist.m_max_video_res = std::max(Playlist.m_max_video_res, 576u);
+						break;
+					case BDVM_VideoFormat_720p:
+						Playlist.m_max_video_res = std::max(Playlist.m_max_video_res, 720u);
+						break;
+					case BDVM_VideoFormat_1080i:
+					case BDVM_VideoFormat_1080p:
+						Playlist.m_max_video_res = std::max(Playlist.m_max_video_res, 1080u);
+						break;
+					case BDVM_VideoFormat_2160p:
+						Playlist.m_max_video_res = std::max(Playlist.m_max_video_res, 2160u);
+						break;
+					default:
+						break;
+				}
+			}
+		}
+
+		return Playlist.empty() ? E_FAIL : bDuplicate ? S_FALSE : S_OK;
 	}
 
 	return AmHresultFromWin32(GetLastError());
@@ -731,14 +933,16 @@ HRESULT CHdmvClipInfo::ReadPlaylist(CString strPlaylistFile, REFERENCE_TIME& rtD
 
 HRESULT CHdmvClipInfo::ReadChapters(CString strPlaylistFile, CPlaylist& PlaylistItems, CPlaylistChapter& Chapters)
 {
+	Chapters.clear();
+
 	CPath Path(strPlaylistFile);
 
 	// Get BDMV folder
 	Path.RemoveFileSpec();
 	Path.RemoveFileSpec();
 
-	m_hFile = CreateFile(strPlaylistFile, GENERIC_READ, dwShareMode, NULL,
-						 OPEN_EXISTING, dwFlagsAndAttributes, NULL);
+	m_hFile = CreateFileW(strPlaylistFile, GENERIC_READ, dwShareMode, nullptr,
+						  OPEN_EXISTING, dwFlagsAndAttributes, nullptr);
 	if (m_hFile != INVALID_HANDLE_VALUE) {
 		BYTE Buff[4] = { 0 };
 
@@ -748,49 +952,48 @@ HRESULT CHdmvClipInfo::ReadChapters(CString strPlaylistFile, CPlaylist& Playlist
 		}
 
 		ReadBuffer(Buff, 4);
-		if ((memcmp(Buff, "0200", 4)) && (memcmp(Buff, "0100", 4))) {
+		if (!CheckVer()) {
 			return CloseFile(VFW_E_INVALID_FILE_FORMAT);
 		}
 
-		REFERENCE_TIME* rtOffset = DNew REFERENCE_TIME[PlaylistItems.GetCount()];
-		REFERENCE_TIME  rtSum    = 0;
-		USHORT          nIndex   = 0;
+		std::vector<REFERENCE_TIME> rtOffsets;
+		rtOffsets.reserve(PlaylistItems.size());
+		REFERENCE_TIME rtSum = 0;
 
-		POSITION pos = PlaylistItems.GetHeadPosition();
-		while (pos) {
-			const CHdmvClipInfo::PlaylistItem* PI = PlaylistItems.GetNext(pos);
-
-			rtOffset[nIndex] = rtSum - PI->m_rtIn;
-			rtSum            = rtSum + PI->Duration();
-			nIndex++;
+		for (const auto& Item : PlaylistItems) {
+			rtOffsets.emplace_back(rtSum - Item.m_rtIn);
+			rtSum += Item.Duration();
 		}
 
-		ReadDword();						// PlayList_start_address
-		LONGLONG playlistPos = ReadDword();	// PlayListMark_start_address
+		ReadDword();                        // PlayList_start_address
+		LONGLONG playlistPos = ReadDword(); // PlayListMark_start_address
 
 		// PlayListMark()
 		SetPos(playlistPos);
-		ReadDword();							// length
-		const USHORT nMarkCount = ReadShort();	// number_of_PlayList_marks
+		ReadDword();                           // length
+		const USHORT nMarkCount = ReadShort(); // number_of_PlayList_marks
 		for (USHORT i = 0; i < nMarkCount; i++) {
 			PlaylistChapter	Chapter;
 
-			ReadByte();																// reserved_for_future_use
-			Chapter.m_nMarkType   = (PlaylistMarkType)ReadByte();					// mark_type
-			Chapter.m_nPlayItemId = ReadShort();									// ref_to_PlayItem_id
-			Chapter.m_rtTimestamp = REFERENCE_TIME(20000.0f * ReadDword() / 90) + rtOffset[Chapter.m_nPlayItemId];		// mark_time_stamp
-			Chapter.m_nEntryPID   = ReadShort();									// entry_ES_PID
-			Chapter.m_rtDuration  = REFERENCE_TIME(20000.0f * ReadDword() / 90);	// duration
+			ReadByte();                                                          // reserved_for_future_use
+			Chapter.m_nMarkType   = (PlaylistMarkType)ReadByte();                // mark_type
+			Chapter.m_nPlayItemId = ReadShort();                                 // ref_to_PlayItem_id
+			if (Chapter.m_nPlayItemId >= (SHORT)rtOffsets.size()) {
+				break;
+			}
+			Chapter.m_rtTimestamp = REFERENCE_TIME(20000.0f * ReadDword() / 90)  // mark_time_stamp
+								  + rtOffsets[Chapter.m_nPlayItemId];
+			Chapter.m_nEntryPID   = ReadShort();                                 // entry_ES_PID
+			Chapter.m_rtDuration  = REFERENCE_TIME(20000.0f * ReadDword() / 90); // duration
 
 			if (Chapter.m_rtTimestamp < 0 || Chapter.m_rtTimestamp > rtSum) {
 				continue;
 			}
 
-			Chapters.AddTail(Chapter);
+			Chapters.emplace_back(Chapter);
 		}
 
 		CloseFile(S_OK);
-		SAFE_DELETE_ARRAY(rtOffset);
 
 		return S_OK;
 	}
@@ -800,102 +1003,87 @@ HRESULT CHdmvClipInfo::ReadChapters(CString strPlaylistFile, CPlaylist& Playlist
 
 #define MIN_LIMIT 3
 
-HRESULT CHdmvClipInfo::FindMainMovie(LPCTSTR strFolder, CString& strPlaylistFile, CPlaylist& MainPlaylist, CPlaylist& MPLSPlaylists)
+HRESULT CHdmvClipInfo::FindMainMovie(LPCWSTR strFolder, CString& strPlaylistFile, CPlaylist& MainPlaylist, CPlaylist& Playlists)
 {
 	HRESULT hr = E_FAIL;
 	CString strPath(strFolder);
 
-	MainPlaylist.RemoveAll();
-	MPLSPlaylists.RemoveAll();
+	MainPlaylist.clear();
+	Playlists.clear();
 
 	WIN32_FIND_DATA fd = {0};
-	HANDLE hFind = FindFirstFile(strPath + L"\\PLAYLIST\\*.mpls", &fd);
+	HANDLE hFind = FindFirstFileW(strPath + L"\\PLAYLIST\\*.mpls", &fd);
 	if (hFind != INVALID_HANDLE_VALUE) {
-		CPlaylist      Playlist;
-		CPlaylist      PlaylistArray[1024];
-		int            idx = 0;
+		std::vector<CPlaylist> PlaylistArray;
 		REFERENCE_TIME rtMax = 0;
 		REFERENCE_TIME rtCurrent;
 		CString        strCurrentPlaylist;
+		__int64        mpls_size_max = 0;
+		unsigned       max_video_res = 0;
 		do {
+			CPlaylist Playlist;
 			strCurrentPlaylist = strPath + L"\\PLAYLIST\\" + fd.cFileName;
-			Playlist.RemoveAll();
-
 			// Main movie shouldn't have duplicate M2TS filename ...
 			if (ReadPlaylist(strCurrentPlaylist, rtCurrent, Playlist) == S_OK) {
-				if (rtCurrent > rtMax) {
-					rtMax			= rtCurrent;
+				if ((rtCurrent > rtMax && Playlist.m_max_video_res >= max_video_res)
+						|| (rtCurrent == rtMax && Playlist.m_mpls_size > mpls_size_max)
+						|| ((rtCurrent < rtMax && rtCurrent >= rtMax / 2) && Playlist.m_max_video_res > max_video_res)) {
+					rtMax           = rtCurrent;
+					mpls_size_max   = Playlist.m_mpls_size;
+					max_video_res   = Playlist.m_max_video_res;
+					MainPlaylist    = Playlist;
 					strPlaylistFile = strCurrentPlaylist;
-					MainPlaylist.RemoveAll();
-					POSITION pos = Playlist.GetHeadPosition();
-					while (pos) {
-						CAutoPtr<PlaylistItem> Item(DNew PlaylistItem(*Playlist.GetNext(pos)));
-						MainPlaylist.AddTail(Item);
-					}
 					hr = S_OK;
 				}
 
-				if (rtCurrent >= (REFERENCE_TIME)MIN_LIMIT*600000000) {
-
+				if (rtCurrent >= MIN_LIMIT * 600000000LL) {
 					// Search duplicate playlists ...
-					bool dublicate = false;
-					for (int i = 0; i < idx; i++) {
-						CPlaylist* pl = &PlaylistArray[i];
-
-						if (pl->GetCount() != Playlist.GetCount()) {
-							continue;
-						}
-						POSITION pos1	= Playlist.GetHeadPosition();
-						POSITION pos2	= pl->GetHeadPosition();
-						dublicate		= true;
-						while (pos1 && pos2) {
-							PlaylistItem* pli_1 = Playlist.GetNext(pos1);
-							PlaylistItem* pli_2 = pl->GetNext(pos2);
-							if (*pli_1 == *pli_2) {
+					bool duplicate = false;
+					if (!Playlists.empty()) {
+						for (const auto& item : PlaylistArray) {
+							if (item.size() != Playlist.size()) {
 								continue;
 							}
-							dublicate = false;
-							break;
-						}
 
-						if (dublicate) {
-							break;
+							duplicate = true;
+							for (size_t i = 0; i < item.size() && duplicate; i++) {
+								if (item[i] == Playlist[i]) {
+									continue;
+								}
+
+								duplicate = false;
+							}
+
+							if (duplicate) {
+								duplicate = (item.m_mpls_size == Playlist.m_mpls_size);
+							}
 						}
 					}
-
-					if (dublicate) {
+					if (duplicate) {
 						continue;
 					}
 
-					CAutoPtr<PlaylistItem> Item(DNew PlaylistItem);
-					Item->m_strFileName = strCurrentPlaylist;
-					Item->m_rtIn        = 0;
-					Item->m_rtOut       = rtCurrent;
-					MPLSPlaylists.AddTail(Item);
+					PlaylistItem Item;
+					Item.m_strFileName = strCurrentPlaylist;
+					Item.m_rtOut       = rtCurrent;
+					Item.m_SizeOut     = Playlist.m_mpls_size;
+					Playlists.emplace_back(Item);
 
-					POSITION pos = Playlist.GetHeadPosition();
-					while (pos) {
-						CAutoPtr<PlaylistItem> Item(DNew PlaylistItem(*Playlist.GetNext(pos)));
-						PlaylistArray[idx].AddTail(Item);
-					}
-					idx++;
+					PlaylistArray.emplace_back(Playlist);
 				}
 			}
-		} while (FindNextFile(hFind, &fd));
+		} while (FindNextFileW(hFind, &fd));
 
 		FindClose(hFind);
 	}
 
-	if (MPLSPlaylists.GetCount() > 1) {
-		// bubble sort
-		for (size_t j = 0; j < MPLSPlaylists.GetCount(); j++) {
-			for (size_t i = 0; i < MPLSPlaylists.GetCount()-1; i++) {
-				if (MPLSPlaylists.GetAt(MPLSPlaylists.FindIndex(i))->Duration() < MPLSPlaylists.GetAt(MPLSPlaylists.FindIndex(i+1))->Duration()) {
-					MPLSPlaylists.SwapElements(MPLSPlaylists.FindIndex(i), MPLSPlaylists.FindIndex(i+1));
-				}
-			}
-		}
+	if (Playlists.size() == 1) {
+		Playlists.clear();
 	}
+
+	std::sort(Playlists.begin(), Playlists.end(), [](const PlaylistItem& a, const PlaylistItem& b) {
+		return (a.Duration() > b.Duration() || (a.Duration() == b.Duration() && a.Size() > b.Size()));
+	});
 
 	return hr;
 }

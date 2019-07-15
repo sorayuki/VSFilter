@@ -1,6 +1,6 @@
 /*
 * (C) 2007 Niels Martin Hansen
-* (C) 2013-2014 see Authors.txt
+* (C) 2013-2017 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -26,6 +26,7 @@
 #define LIBDIVIDE_USE_SSE2 1
 #include "libdivide.h"
 
+/*
 // Filter an image in horizontal direction with a one-dimensional filter
 // PixelWidth is the distance in bytes between pixels
 template<ptrdiff_t PixelDist>
@@ -108,7 +109,7 @@ void SeparableFilterY(unsigned char* src, unsigned char* dst, int width, int hei
 
 	delete [] tmp;
 }
-
+*/
 
 // Filter an image in horizontal direction with a one-dimensional filter
 void SeparableFilterX_SSE2(unsigned char* src, unsigned char* dst, int width, int height, ptrdiff_t stride,
@@ -328,8 +329,6 @@ void SeparableFilterY_SSE2(unsigned char* src, unsigned char* dst, int width, in
 	_aligned_free(tmp);
 }
 
-
-
 static inline double NormalDist(double sigma, double x)
 {
 	if (sigma <= 0.0 && x == 0.0) {
@@ -340,7 +339,6 @@ static inline double NormalDist(double sigma, double x)
 		return exp(-(x * x) / (2 * sigma * sigma)) / (sigma * sqrt(2 * M_PI));
 	}
 }
-
 
 struct GaussianKernel {
 	short* kernel;
@@ -360,6 +358,9 @@ struct GaussianKernel {
 			divisor += val * 2;
 			kernel[x] = val;
 			kernel[width - x - 1] = val;
+		}
+		if (divisor == 0) {
+			divisor = 1;
 		}
 	}
 

@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,19 +21,23 @@
 
 #pragma once
 
+#include <vector>
+#include <list>
 #include "NullRenderers.h"
 #include "H264Nalu.h"
 #include "MediaTypeEx.h"
 #include "MFCHelper.h"
 #include "vd.h"
 #include "text.h"
+#include "Log.h"
 #include <basestruct.h>
 #include <mpc_defines.h>
+#include "Utils.h"
 
 #define LCID_NOSUBTITLES    -1
 
-#define SAFE_RELEASE(p)      { if (p) { (p)->Release(); (p) = NULL; } }
-#define SAFE_CLOSE_HANDLE(p) { if (p) { if ((p) != INVALID_HANDLE_VALUE) VERIFY(CloseHandle(p)); (p) = NULL; } }
+#define SAFE_RELEASE(p)      { if (p) { (p)->Release(); (p) = nullptr; } }
+#define SAFE_CLOSE_HANDLE(p) { if (p) { if ((p) != INVALID_HANDLE_VALUE) VERIFY(CloseHandle(p)); (p) = nullptr; } }
 
 #define EXIT_ON_ERROR(hres)  { if (FAILED(hres)) return hres; }
 
@@ -46,13 +50,6 @@
 //#define _countof(array) (sizeof(array)/sizeof(array[0]))
 //#endif
 
-enum FRAME_TYPE {
-	PICT_NONE,
-	PICT_TOP_FIELD,
-	PICT_BOTTOM_FIELD,
-	PICT_FRAME
-};
-
 extern int				CountPins(IBaseFilter* pBF, int& nIn, int& nOut, int& nInC, int& nOutC);
 extern bool				IsSplitter(IBaseFilter* pBF, bool fCountConnectedOnly = false);
 extern bool				IsMultiplexer(IBaseFilter* pBF, bool fCountConnectedOnly = false);
@@ -63,10 +60,10 @@ extern bool				IsVideoRenderer(IBaseFilter* pBF);
 extern bool				IsVideoRenderer(const CLSID clsid);
 extern bool				IsAudioWaveRenderer(IBaseFilter* pBF);
 
-extern IBaseFilter*		GetUpStreamFilter(IBaseFilter* pBF, IPin* pInputPin = NULL);
-extern IPin*			GetUpStreamPin(IBaseFilter* pBF, IPin* pInputPin = NULL);
-extern IBaseFilter*		GetDownStreamFilter(IBaseFilter* pBF, IPin* pInputPin = NULL);
-extern IPin*			GetDownStreamPin(IBaseFilter* pBF, IPin* pInputPin = NULL);
+extern IBaseFilter*		GetUpStreamFilter(IBaseFilter* pBF, IPin* pInputPin = nullptr);
+extern IPin*			GetUpStreamPin(IBaseFilter* pBF, IPin* pInputPin = nullptr);
+extern IBaseFilter*		GetDownStreamFilter(IBaseFilter* pBF, IPin* pInputPin = nullptr);
+extern IPin*			GetDownStreamPin(IBaseFilter* pBF, IPin* pInputPin = nullptr);
 extern IPin*			GetFirstPin(IBaseFilter* pBF, PIN_DIRECTION dir = PINDIR_INPUT);
 extern IPin*			GetFirstDisconnectedPin(IBaseFilter* pBF, PIN_DIRECTION dir);
 extern void				NukeDownstream(IBaseFilter* pBF, IFilterGraph* pFG);
@@ -83,10 +80,10 @@ extern IPin*			AppendFilter(IPin* pPin, CString DisplayName, IGraphBuilder* pGB)
 extern IBaseFilter*		AppendFilter(IPin* pPin, IMoniker* pMoniker, IGraphBuilder* pGB);
 extern IPin*			InsertFilter(IPin* pPin, CString DisplayName, IGraphBuilder* pGB);
 extern bool				CreateFilter(CString DisplayName, IBaseFilter** ppBF, CString& FriendlyName);
-extern bool				HasMediaType(IPin *pPin, const GUID &mediaType);
+extern bool				HasMediaType(IFilterGraph *pFilterGraph, const GUID &mediaType);
 
-extern void				ExtractMediaTypes(IPin* pPin, CAtlArray<GUID>& types);
-extern void				ExtractMediaTypes(IPin* pPin, CAtlList<CMediaType>& mts);
+extern void				ExtractMediaTypes(IPin* pPin, std::vector<GUID>& types);
+extern void				ExtractMediaTypes(IPin* pPin, std::list<CMediaType>& mts);
 extern bool				ExtractBIH(const AM_MEDIA_TYPE* pmt, BITMAPINFOHEADER* bih);
 extern bool				ExtractBIH(IMediaSample* pMS, BITMAPINFOHEADER* bih);
 extern bool				ExtractAvgTimePerFrame(const AM_MEDIA_TYPE* pmt, REFERENCE_TIME& rtAvgTimePerFrame);
@@ -98,10 +95,10 @@ extern CLSID			GetCLSID(IPin* pPin);
 extern void				ShowPPage(CString DisplayName, HWND hParentWnd);
 extern void				ShowPPage(IUnknown* pUnknown, HWND hParentWnd);
 
-extern bool				IsCLSIDRegistered(LPCTSTR clsid);
+extern bool				IsCLSIDRegistered(LPCWSTR clsid);
 extern bool				IsCLSIDRegistered(const CLSID& clsid);
 
-extern void				CStringToBin(CString str, CAtlArray<BYTE>& data);
+extern void				CStringToBin(CString str, std::vector<BYTE>& data);
 extern CString			BinToCString(const BYTE* ptr, size_t len);
 
 enum cdrom_t {
@@ -112,10 +109,8 @@ enum cdrom_t {
 	CDROM_BDVideo,
 	CDROM_Unknown
 };
-extern cdrom_t			GetCDROMType(TCHAR drive, CAtlList<CString>& files);
-extern CString			GetDriveLabel(TCHAR drive);
-
-extern bool				GetKeyFrames(CString fn, CUIntArray& kfs);
+extern cdrom_t			GetCDROMType(WCHAR drive, std::list<CString>& files);
+extern CString			GetDriveLabel(WCHAR drive);
 
 extern DVD_HMSF_TIMECODE	RT2HMSF(REFERENCE_TIME rt, double fps = 0); // use to remember the current position
 extern DVD_HMSF_TIMECODE	RT2HMS_r(REFERENCE_TIME rt);                // use only for information (for display on the screen)
@@ -123,30 +118,26 @@ extern REFERENCE_TIME		HMSF2RT(DVD_HMSF_TIMECODE hmsf, double fps = 0);
 extern CString				ReftimeToString(const REFERENCE_TIME& rtVal);
 extern CString				ReftimeToString2(const REFERENCE_TIME& rtVal);
 extern CString				DVDtimeToString(const DVD_HMSF_TIMECODE& rtVal, bool bAlwaysShowHours=false);
-extern REFERENCE_TIME		StringToReftime(LPCTSTR strVal);
-extern REFERENCE_TIME		StringToReftime2(LPCTSTR strVal);
+extern REFERENCE_TIME		StringToReftime(LPCWSTR strVal);
+extern REFERENCE_TIME		StringToReftime2(LPCWSTR strVal);
 
 extern void				memsetd(void* dst, unsigned int c, size_t nbytes);
 extern void				memsetw(void* dst, unsigned short c, size_t nbytes);
 
 extern CString			GetFriendlyName(CString DisplayName);
-extern HRESULT			LoadExternalObject(LPCTSTR path, REFCLSID clsid, REFIID iid, void** ppv);
-extern HRESULT			LoadExternalFilter(LPCTSTR path, REFCLSID clsid, IBaseFilter** ppBF);
+extern HRESULT			LoadExternalObject(LPCWSTR path, REFCLSID clsid, REFIID iid, void** ppv);
+extern HRESULT			LoadExternalFilter(LPCWSTR path, REFCLSID clsid, IBaseFilter** ppBF);
 extern HRESULT			LoadExternalPropertyPage(IPersist* pP, REFCLSID clsid, IPropertyPage** ppPP);
 extern void				UnloadExternalObjects();
 
-extern CString			MakeFullPath(LPCTSTR path);
-extern bool				IsLikelyPath(LPCTSTR str); // stupid path detector
+extern CString			MakeFullPath(LPCWSTR path);
+// simple file system path detector
+extern bool				IsLikelyFilePath(const CString &str);
 
-extern CString			GetMediaTypeName(const GUID& guid);
 extern GUID				GUIDFromCString(CString str);
 extern HRESULT			GUIDFromCString(CString str, GUID& guid);
-extern CString			CStringFromGUID(const GUID& guid);
+extern CStringW			CStringFromGUID(const GUID& guid);
 
-extern CString			ConvertToUTF16(LPCSTR lpMultiByteStr, UINT CodePage);
-extern CString			UTF8To16(LPCSTR lpMultiByteStr);
-extern CStringA			UTF16To8(LPCWSTR lpWideCharStr);
-extern CString			AltUTF8To16(LPCSTR lpMultiByteStr);
 extern CString			ISO6391ToLanguage(LPCSTR code);
 extern CString			ISO6392ToLanguage(LPCSTR code);
 
@@ -156,29 +147,24 @@ extern LCID				ISO6391ToLcid(LPCSTR code);
 extern LCID				ISO6392ToLcid(LPCSTR code);
 extern CString			ISO6391To6392(LPCSTR code);
 extern CString			ISO6392To6391(LPCSTR code);
-extern CString			LanguageToISO6392(LPCTSTR lang);
+extern CString			LanguageToISO6392(LPCWSTR lang);
 
-extern bool				DeleteRegKey(LPCTSTR pszKey, LPCTSTR pszSubkey);
-extern bool				SetRegKeyValue(LPCTSTR pszKey, LPCTSTR pszSubkey, LPCTSTR pszValueName, LPCTSTR pszValue);
-extern bool				SetRegKeyValue(LPCTSTR pszKey, LPCTSTR pszSubkey, LPCTSTR pszValue);
+extern bool				DeleteRegKey(LPCWSTR pszKey, LPCWSTR pszSubkey);
+extern bool				SetRegKeyValue(LPCWSTR pszKey, LPCWSTR pszSubkey, LPCWSTR pszValueName, LPCWSTR pszValue);
+extern bool				SetRegKeyValue(LPCWSTR pszKey, LPCWSTR pszSubkey, LPCWSTR pszValue);
 
-extern void				RegisterSourceFilter(const CLSID& clsid, const GUID& subtype2, LPCTSTR chkbytes, LPCTSTR ext = NULL, ...);
-extern void				RegisterSourceFilter(const CLSID& clsid, const GUID& subtype2, const CAtlList<CString>& chkbytes, LPCTSTR ext = NULL, ...);
+extern void				RegisterSourceFilter(const CLSID& clsid, const GUID& subtype2, LPCWSTR chkbytes, LPCWSTR ext = nullptr, ...);
+extern void				RegisterSourceFilter(const CLSID& clsid, const GUID& subtype2, const std::list<CString>& chkbytes, LPCWSTR ext = nullptr, ...);
 extern void				UnRegisterSourceFilter(const GUID& subtype);
 
-extern CString			GetDXVAMode(const GUID* guidDecoder);
-
-extern COLORREF			YCrCbToRGB_Rec601(BYTE Y, BYTE Cr, BYTE Cb);
-extern COLORREF			YCrCbToRGB_Rec709(BYTE Y, BYTE Cr, BYTE Cb);
-extern DWORD			YCrCbToRGB_Rec601(BYTE A, BYTE Y, BYTE Cr, BYTE Cb);
-extern DWORD			YCrCbToRGB_Rec709(BYTE A, BYTE Y, BYTE Cr, BYTE Cb);
+extern CString			GetDXVAMode(const GUID& guidDecoder);
 
 extern void				TraceFilterInfo(IBaseFilter* pBF);
 extern void				TracePinInfo(IPin* pPin);
 
 extern void				SetThreadName(DWORD dwThreadID, LPCSTR szThreadName);
 
-extern void				getExtraData(const BYTE *format, const GUID *formattype, const size_t formatlen, BYTE *extra, unsigned int *extralen);
+extern void				getExtraData(const BYTE *format, const GUID *formattype, const ULONG formatlen, BYTE *extra, unsigned int *extralen);
 
 extern int				MakeAACInitData(BYTE* pData, int profile, int freq, int channels);
 extern bool				MakeMPEG2MediaType(CMediaType& mt, BYTE* seqhdr, DWORD len, int w, int h);
@@ -187,42 +173,24 @@ extern HRESULT			CreateMPEG2VIfromMVC(CMediaType* mt, BITMAPINFOHEADER* pbmi, RE
 extern HRESULT			CreateMPEG2VISimple(CMediaType* mt, BITMAPINFOHEADER* pbmi, REFERENCE_TIME AvgTimePerFrame, CSize aspect, BYTE* extra, size_t extralen, DWORD dwProfile = 0, DWORD dwLevel = 0, DWORD dwFlags = 0);
 extern HRESULT			CreateAVCfromH264(CMediaType* mt);
 
-extern void				CreateVorbisMediaType(CMediaType& mt, CAtlArray<CMediaType>& mts, DWORD Channels, DWORD SamplesPerSec, DWORD BitsPerSample, const BYTE* pData, size_t Count);
+extern void				CreateVorbisMediaType(CMediaType& mt, std::vector<CMediaType>& mts, DWORD Channels, DWORD SamplesPerSec, DWORD BitsPerSample, const BYTE* pData, size_t Count);
 
 extern CStringA			VobSubDefHeader(int w, int h, CStringA palette = "");
 extern void				CorrectWaveFormatEx(CMediaType& mt);
 
-extern void				ReduceDim(LONG& num, LONG& den);
-extern void				ReduceDim(SIZE &dim);
-extern SIZE				ReduceDim(double value);
-
 extern inline const LONGLONG GetPerfCounter();
-
-template <typename T>
-// Clamps the specified value to the specified minimum and maximum range.
-extern inline T clamp(T const& val, T const& lo, T const& hi)
-{
-	return (val > hi) ? hi : (val < lo) ? lo : val;
-}
-
-template <typename T, typename D>
-// If the specified value is out of range, set to default values.
-extern inline T discard(T const& val, T const& lo, T const& hi, D const& def)
-{
-	return (val > hi || val < lo) ? def : val;
-}
 
 class CPinInfo : public PIN_INFO
 {
 public:
-	CPinInfo() { pFilter = NULL; }
+	CPinInfo() { pFilter = nullptr; }
 	~CPinInfo() { if (pFilter) { pFilter->Release(); } }
 };
 
 class CFilterInfo : public FILTER_INFO
 {
 public:
-	CFilterInfo() { pGraph = NULL; }
+	CFilterInfo() { pGraph = nullptr; }
 	~CFilterInfo() { if (pGraph) { pGraph->Release(); } }
 };
 
@@ -230,7 +198,7 @@ public:
 	{CComPtr<IEnumFilters> pEnumFilters; \
 	if (pFilterGraph && SUCCEEDED(pFilterGraph->EnumFilters(&pEnumFilters))) \
 	{ \
-		for (CComPtr<IBaseFilter> pBaseFilter; S_OK == pEnumFilters->Next(1, &pBaseFilter, 0); pBaseFilter = NULL) \
+		for (CComPtr<IBaseFilter> pBaseFilter; S_OK == pEnumFilters->Next(1, &pBaseFilter, 0); pBaseFilter = nullptr) \
 		{ \
  
 #define EndEnumFilters }}}
@@ -239,7 +207,7 @@ public:
 	{CComPtr<IEnumFilters> pEnumFilters; \
 	if (pGraphConfig && SUCCEEDED(pGraphConfig->EnumCacheFilter(&pEnumFilters))) \
 	{ \
-		for (CComPtr<IBaseFilter> pBaseFilter; S_OK == pEnumFilters->Next(1, &pBaseFilter, 0); pBaseFilter = NULL) \
+		for (CComPtr<IBaseFilter> pBaseFilter; S_OK == pEnumFilters->Next(1, &pBaseFilter, 0); pBaseFilter = nullptr) \
 		{ \
  
 #define EndEnumCachedFilters }}}
@@ -248,7 +216,7 @@ public:
 	{CComPtr<IEnumPins> pEnumPins; \
 	if (pBaseFilter && SUCCEEDED(pBaseFilter->EnumPins(&pEnumPins))) \
 	{ \
-		for (CComPtr<IPin> pPin; S_OK == pEnumPins->Next(1, &pPin, 0); pPin = NULL) \
+		for (CComPtr<IPin> pPin; S_OK == pEnumPins->Next(1, &pPin, 0); pPin = nullptr) \
 		{ \
  
 #define EndEnumPins }}}
@@ -257,8 +225,8 @@ public:
 	{CComPtr<IEnumMediaTypes> pEnumMediaTypes; \
 	if (pPin && SUCCEEDED(pPin->EnumMediaTypes(&pEnumMediaTypes))) \
 	{ \
-		AM_MEDIA_TYPE* pMediaType = NULL; \
-		for (; S_OK == pEnumMediaTypes->Next(1, &pMediaType, NULL); DeleteMediaType(pMediaType), pMediaType = NULL) \
+		AM_MEDIA_TYPE* pMediaType = nullptr; \
+		for (; S_OK == pEnumMediaTypes->Next(1, &pMediaType, nullptr); DeleteMediaType(pMediaType), pMediaType = nullptr) \
 		{ \
  
 #define EndEnumMediaTypes(pMediaType) } if (pMediaType) DeleteMediaType(pMediaType); }}
@@ -270,7 +238,7 @@ public:
 	if (SUCCEEDED(pDevEnum4$##clsid->CreateClassEnumerator(clsid, &pClassEnum4$##clsid, 0)) \
 	&& pClassEnum4$##clsid) \
 	{ \
-		for (CComPtr<IMoniker> pMoniker; pClassEnum4$##clsid->Next(1, &pMoniker, 0) == S_OK; pMoniker = NULL) \
+		for (CComPtr<IMoniker> pMoniker; pClassEnum4$##clsid->Next(1, &pMoniker, 0) == S_OK; pMoniker = nullptr) \
 		{ \
  
 #define EndEnumSysDev }}}
@@ -286,7 +254,7 @@ static CUnknown* WINAPI CreateInstance(LPUNKNOWN lpunk, HRESULT* phr)
 {
 	*phr = S_OK;
 	CUnknown* punk = DNew T(lpunk, phr);
-	if (punk == NULL) {
+	if (punk == nullptr) {
 		*phr = E_OUTOFMEMORY;
 	}
 	return punk;

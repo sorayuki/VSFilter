@@ -1,5 +1,5 @@
 /*
- * (C) 2016 see Authors.txt
+ * (C) 2016-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -31,12 +31,12 @@ CString ResStr(UINT nID)
 	return id;
 }
 
-void SetCursor(HWND m_hWnd, LPCTSTR lpCursorName)
+void SetCursor(HWND m_hWnd, LPCWSTR lpCursorName)
 {
-	SetClassLongPtr(m_hWnd, GCLP_HCURSOR, (LONG_PTR)AfxGetApp()->LoadStandardCursor(lpCursorName));
+	SetClassLongPtrW(m_hWnd, GCLP_HCURSOR, (LONG_PTR)AfxGetApp()->LoadStandardCursor(lpCursorName));
 }
 
-void SetCursor(HWND m_hWnd, UINT nID, LPCTSTR lpCursorName)
+void SetCursor(HWND m_hWnd, UINT nID, LPCWSTR lpCursorName)
 {
 	SetCursor(::GetDlgItem(m_hWnd, nID), lpCursorName);
 }
@@ -56,7 +56,7 @@ void CorrectComboListWidth(CComboBox& ComboBox)
 	// Select the listbox font, save the old font
 	CFont* pOldFont = pDC->SelectObject(pFont);
 	// Get the text metrics for avg char width
-	pDC->GetTextMetrics(&tm);
+	pDC->GetTextMetricsW(&tm);
 
 	// Find the longest string in the combo box.
 	for (int i = 0; i < ComboBox.GetCount(); i++) {
@@ -97,11 +97,11 @@ void CorrectCWndWidth(CWnd* pWnd)
 	CFont* pOldFont = pDC->SelectObject(pFont);
 
 	CString str;
-	pWnd->GetWindowText(str);
+	pWnd->GetWindowTextW(str);
 	CSize szText = pDC->GetTextExtent(str);
 
 	TEXTMETRIC tm;
-	pDC->GetTextMetrics(&tm);
+	pDC->GetTextMetricsW(&tm);
 	pDC->SelectObject(pOldFont);
 	pWnd->ReleaseDC(pDC);
 
@@ -113,33 +113,54 @@ void CorrectCWndWidth(CWnd* pWnd)
 	pWnd->MoveWindow(r);
 }
 
-void SelectByItemData(CComboBox& ComboBox, int data)
+extern void SetMenuRadioCheck(CCmdUI* pCmdUI, bool bCheck)
+{
+	if (IsMenu(*pCmdUI->m_pMenu)) {
+		MENUITEMINFO mii = { sizeof(mii) };
+		mii.fMask = MIIM_FTYPE | MIIM_STATE;
+		mii.fType = bCheck ? MFT_RADIOCHECK : MFT_STRING;
+		mii.fState = bCheck ? MFS_CHECKED : MFS_UNCHECKED;
+		VERIFY(pCmdUI->m_pMenu->SetMenuItemInfo(pCmdUI->m_nID, &mii));
+	}
+}
+
+inline void AddStringData(CComboBox& ComboBox, LPCWSTR str, DWORD_PTR data)
+{
+	ComboBox.SetItemData(ComboBox.AddString(str), data);
+}
+
+inline void AddStringData(CListBox& ListBox, LPCWSTR str, DWORD_PTR data)
+{
+	ListBox.SetItemData(ListBox.AddString(str), data);
+}
+
+inline DWORD_PTR GetCurItemData(CComboBox& ComboBox)
+{
+	return ComboBox.GetItemData(ComboBox.GetCurSel());
+}
+
+inline DWORD_PTR GetCurItemData(CListBox& ListBox)
+{
+	return ListBox.GetItemData(ListBox.GetCurSel());
+}
+
+void SelectByItemData(CComboBox& ComboBox, DWORD_PTR data)
 {
 	for (int i = 0; i < ComboBox.GetCount(); i++) {
-		if (ComboBox.GetItemData(i) == (DWORD_PTR)data) {
+		if (ComboBox.GetItemData(i) == data) {
 			ComboBox.SetCurSel(i);
 			break;
 		}
 	}
 }
 
-void SelectByItemData(CListBox ListBox, int data)
+void SelectByItemData(CListBox& ListBox, DWORD_PTR data)
 {
 	for (int i = 0; i < ListBox.GetCount(); i++) {
-		if (ListBox.GetItemData(i) == (DWORD_PTR)data) {
+		if (ListBox.GetItemData(i) == data) {
 			ListBox.SetCurSel(i);
 			ListBox.SetTopIndex(i);
 			break;
 		}
 	}
-}
-
-inline int GetCurItemData(CComboBox& ComboBox)
-{
-	return (int)ComboBox.GetItemData(ComboBox.GetCurSel());
-}
-
-inline int GetCurItemData(CListBox& ListBox)
-{
-	return (int)ListBox.GetItemData(ListBox.GetCurSel());
 }

@@ -1,5 +1,5 @@
 /*
- * (C) 2011-2016 see Authors.txt
+ * (C) 2011-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,8 +20,9 @@
 
 #include "stdafx.h"
 #include "AudioParser.h"
-#include "GolombBuffer.h"
 #include <mpc_defines.h>
+#include "Utils.h"
+#include "MP4AudioDecoderConfig.h"
 
 #define AC3_CHANNEL                  0
 #define AC3_MONO                     1
@@ -118,13 +119,6 @@ DWORD GetVorbisChannelMask(WORD nChannels)
 	}
 }
 
-DWORD CountBits(DWORD v) { // used code from \VirtualDub\h\vd2\system\bitmath.h (VDCountBits)
-	v -= (v >> 1) & 0x55555555;
-	v = ((v & 0xcccccccc) >> 2) + (v & 0x33333333);
-	v = (v + (v >> 4)) & 0x0f0f0f0f;
-	return (v * 0x01010101) >> 24;
-}
-
 int CalcBitrate(const audioframe_t& audioframe)
 {
 	return audioframe.samples ? (int)(8i64 * audioframe.size * audioframe.samplerate / audioframe.samples) : 0;
@@ -135,7 +129,7 @@ int CalcBitrate(const audioframe_t& audioframe)
 int ParseAC3IEC61937Header(const BYTE* buf)
 {
 	WORD* wbuf = (WORD*)buf;
-	if (GETDWORD(buf) != IEC61937_SYNCWORD
+	if (GETU32(buf) != IEC61937_SYNCWORD
 			|| wbuf[2] !=  0x0001
 			|| wbuf[3] == 0
 			|| wbuf[3] >= (6144-8)*8
@@ -174,7 +168,7 @@ static const int mpeg1_samplerates[] = { 44100, 48000, 32000, 0 };
 
 int ParseMPAHeader(const BYTE* buf, audioframe_t* audioframe)
 {
-	if ((GETWORD(buf) & MPA_SYNCWORD) != MPA_SYNCWORD) { // sync
+	if ((GETU16(buf) & MPA_SYNCWORD) != MPA_SYNCWORD) { // sync
 		return 0;
 	}
 
@@ -248,7 +242,7 @@ int ParseMPEG1Header(const BYTE* buf, MPEG1WAVEFORMAT* mpeg1wf)
 {
 	// http://msdn.microsoft.com/en-us/library/windows/desktop/dd390701%28v=vs.85%29.aspx
 
-	if ((GETWORD(buf) & 0xf8ff) != 0xf8ff) { // sync + (mpaver_id = MPEG Version 1)
+	if ((GETU16(buf) & 0xf8ff) != 0xf8ff) { // sync + (mpaver_id = MPEG Version 1)
 		return 0;
 	}
 
@@ -299,7 +293,7 @@ int ParseMP3Header(const BYTE* buf, MPEGLAYER3WAVEFORMAT* mp3wf) // experimental
 {
 	// http://msdn.microsoft.com/en-us/library/windows/desktop/dd390710%28v=vs.85%29.aspx
 
-	if ((GETWORD(buf) & 0xfeff) != 0xfaff) { // sync + (mpaver_id = MPEG Version 1 = 11b) + (layer_desc = Layer 3 = 01b)
+	if ((GETU16(buf) & 0xfeff) != 0xfaff) { // sync + (mpaver_id = MPEG Version 1 = 11b) + (layer_desc = Layer 3 = 01b)
 		return 0;
 	}
 
@@ -338,7 +332,7 @@ int ParseAC3Header(const BYTE* buf, audioframe_t* audioframe)
 	static const BYTE  ac3_halfrate[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3 };
 	static const BYTE  ac3_lfeon[8]     = { 0x10, 0x10, 0x04, 0x04, 0x04, 0x01, 0x04, 0x01 };
 
-	if (GETWORD(buf) != AC3_SYNCWORD) { // syncword
+	if (GETU16(buf) != AC3_SYNCWORD) { // syncword
 		return 0;
 	}
 
@@ -422,7 +416,7 @@ int ParseEAC3Header(const BYTE* buf, audioframe_t* audioframe)
 	static const BYTE  eac3_channels[8]    = { 2, 1, 2, 3, 3, 4, 4, 5 };
 	static const short eac3_samples_tbl[4] = { 256, 512, 768, 1536 };
 
-	if (GETWORD(buf) != AC3_SYNCWORD) { // syncword
+	if (GETU16(buf) != AC3_SYNCWORD) { // syncword
 		return 0;
 	}
 
@@ -431,7 +425,7 @@ int ParseEAC3Header(const BYTE* buf, audioframe_t* audioframe)
 		return 0;
 	}
 
-	int frame_size = (((buf[2] & 0x03) << 8) + buf[3] + 1) * 2;
+	int frame_size = (((buf[2] & 0x07) << 8) + buf[3] + 1) * 2;
 
 	int fscod     =  buf[4] >> 6;
 	int fscod2    = (buf[4] >> 4) & 0x03;
@@ -471,7 +465,7 @@ int ParseMLPHeader(const BYTE* buf, audioframe_t* audioframe)
 		   2,   1,   1,   2,   2,   2,   2,   1,   1,   2,   2,   1,   1
 	};
 
-	DWORD sync = GETDWORD(buf+4);
+	DWORD sync = GETU32(buf+4);
 	bool isTrueHD;
 	if (sync == TRUEHD_SYNCWORD) {
 		isTrueHD = true;
@@ -596,7 +590,7 @@ int ParseDTSHeader(const BYTE* buf, audioframe_t* audioframe)
 	};
 
 	int frame_size = 0;
-	DWORD sync = GETDWORD(buf);
+	DWORD sync = GETU32(buf);
 	switch (sync) {
 		case DTS_SYNCWORD_CORE_BE:    // '7FFE8001' 16 bits and big endian bitstream
 			frame_size = ((buf[5] & 3) << 12 | buf[6] << 4 | (buf[7] & 0xf0) >> 4) + 1;
@@ -640,7 +634,7 @@ int ParseDTSHeader(const BYTE* buf, audioframe_t* audioframe)
 				dts14le_to_dts16be(buf, (BYTE*)hdr, 16);
 				break;
 		}
-		ASSERT(GETDWORD(hdr) == 0x0180fe7f);
+		ASSERT(GETU32(hdr) == 0x0180fe7f);
 
 		audioframe->size = frame_size;
 
@@ -687,9 +681,9 @@ enum ExtensionMask {
 	EXSS_XLL  = 0x200,
 };
 
-int ParseDTSHDHeader(const BYTE* buf, const int buffsize /* = 0*/, audioframe_t* audioframe /* = NULL*/)
+int ParseDTSHDHeader(const BYTE* buf, const int buffsize /* = 0*/, audioframe_t* audioframe /* = nullptr*/)
 {
-	if (GETDWORD(buf) != DTS_SYNCWORD_SUBSTREAM) { // syncword
+	if (GETU32(buf) != DTS_SYNCWORD_SUBSTREAM) { // syncword
 		return 0;
 	}
 
@@ -874,7 +868,7 @@ int ParseDTSHDHeader(const BYTE* buf, const int buffsize /* = 0*/, audioframe_t*
 			for (UINT i = 0; i < nmixoutconfigs; i++) {
 				for (UINT j = 0; j < nchannels_dmix; j++) {
 					if (!nmixoutchs[i]) {
-						int c = 9;
+						return 0;
 					}
 					const UINT mix_map_mask = gb.BitRead(nmixoutchs[i]);
 					int nmixcoefs = CountBits(mix_map_mask);
@@ -989,7 +983,7 @@ int ParseADTSAACHeader(const BYTE* buf, audioframe_t* audioframe)
 	static const int  mp4a_samplerates[16] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0 };
 	static const BYTE mp4a_channels[8]     = { 0, 1, 2, 3, 4, 5, 6, 8 };
 
-	if ((GETWORD(buf) & AAC_ADTS_SYNCWORD) != AAC_ADTS_SYNCWORD) { // syncword
+	if ((GETU16(buf) & AAC_ADTS_SYNCWORD) != AAC_ADTS_SYNCWORD) { // syncword
 		return 0;
 	}
 
@@ -1034,78 +1028,6 @@ static inline UINT64 LatmGetValue(CGolombBuffer& gb) {
 	return value;
 }
 
-#define AOT_AAC_LC	2
-#define AOT_SBR		5
-#define AOT_ER_BSAC	22
-#define AOT_PS		29
-#define AOT_ESCAPE	31
-
-static inline int get_object_type(CGolombBuffer& gb)
-{
-	int object_type = gb.BitRead(5);
-	if (object_type == AOT_ESCAPE) {
-		object_type = 32 + gb.BitRead(6);
-	}
-
-	return object_type;
-}
-
-static inline int get_sample_rate(CGolombBuffer& gb)
-{
-	static int freq[] = {96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0};
-
-	int samplingFrequencyIndex = gb.BitRead(4);
-	int samplingFrequency = freq[samplingFrequencyIndex];
-	if (samplingFrequencyIndex == 0x0f) {
-		samplingFrequency = gb.BitRead(24);
-	}
-
-	return samplingFrequency;
-}
-
-static bool ReadAudioConfig(CGolombBuffer& gb, int& samplingFrequency, int& channels)
-{
-	static int channels_layout[8] = {0, 1, 2, 3, 4, 5, 6, 8};
-
-	int sbr_present = 0;
-	int ps_present = 0;
-
-	int audioObjectType = get_object_type(gb);
-	samplingFrequency = get_sample_rate(gb);
-
-	int channelconfig = gb.BitRead(4);
-	channels = (channelconfig < _countof(channels_layout)) ? channels_layout[channelconfig] : 0;
-
-	if (audioObjectType == AOT_SBR
-			|| (audioObjectType == AOT_PS && !(gb.BitRead(3, true) & 0x03 && !(gb.BitRead(9, true) & 0x3F)))) {
-		sbr_present = 1;
-		if (audioObjectType == AOT_PS) {
-			ps_present = 1;
-		}
-
-		samplingFrequency = get_sample_rate(gb);
-		audioObjectType = get_object_type(gb);
-
-		if (audioObjectType == AOT_ER_BSAC) {
-			gb.BitRead(4); // ext_chan_config
-		}
-	}
-
-	if (!sbr_present && samplingFrequency <= 24000) {
-		samplingFrequency *= 2;
-	}
-
-	if (!sbr_present || audioObjectType != AOT_AAC_LC) {
-		ps_present = 0;
-	}
-	if (ps_present) {
-		// HE-AACv2 Profile, always stereo.
-		channels = 2;
-	}
-
-	return audioObjectType == AOT_AAC_LC ? true : false;
-}
-
 static bool StreamMuxConfig(CGolombBuffer& gb, int& samplingFrequency, int& channels, int& nExtraPos)
 {
 	nExtraPos = 0;
@@ -1130,29 +1052,34 @@ static bool StreamMuxConfig(CGolombBuffer& gb, int& samplingFrequency, int& chan
 		}
 
 		if (!audio_mux_version) {
-			// audio specific config.
 			nExtraPos = gb.GetPos();
-			return ReadAudioConfig(gb, samplingFrequency, channels);
+
+			CMP4AudioDecoderConfig MP4AudioDecoderConfig;
+			bool bRet = MP4AudioDecoderConfig.Parse(gb);
+			if (bRet) {
+				samplingFrequency = MP4AudioDecoderConfig.m_SamplingFrequency;
+				channels = MP4AudioDecoderConfig.m_ChannelCount;
+			}
+			return bRet;
 		}
 	}
 
 	return false;
 }
 
-bool ParseAACLatmHeader(const BYTE* buf, int len, int& samplerate, int& channels, BYTE* extra, unsigned int& extralen)
+bool ParseAACLatmHeader(const BYTE* buf, int len, int& samplerate, int& channels, std::vector<BYTE>& extra)
 {
-	CGolombBuffer gb((BYTE*)buf, len);
-
-	if (gb.BitRead(11) != AAC_LATM_SYNCWORD) {
+	if ((GETU16(buf) & 0xe0FF) != 0xe056) {
 		return false;
 	}
 
-	samplerate	= 0;
-	channels	= 0;
-	extralen	= 0;
+	samplerate = channels = 0;
+	extra.clear();
 
 	int nExtraPos = 0;
 
+	CGolombBuffer gb(buf, len);
+	gb.BitRead(11); // sync
 	gb.BitRead(13); // muxlength
 	BYTE use_same_mux = gb.BitRead(1);
 	if (!use_same_mux) {
@@ -1169,10 +1096,12 @@ bool ParseAACLatmHeader(const BYTE* buf, int len, int& samplerate, int& channels
 	}
 
 	if (nExtraPos) {
-		extralen = 4; // max size of extradata ... TODO - calculate/detect right extralen.
+		const int extralen = gb.GetPos() - nExtraPos;
 		gb.Reset();
 		gb.SkipBytes(nExtraPos);
-		gb.ReadBuffer(extra, 4);
+
+		extra.resize(extralen);
+		gb.ReadBuffer(extra.data(), extra.size());
 	}
 
 	return true;

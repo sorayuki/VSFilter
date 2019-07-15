@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,39 +20,68 @@
 
 #pragma once
 
-#include <atlcoll.h>
+#include <deque>
+#include <mutex>
+#include <vector>
 #include <mpc_defines.h>
 
-class CPacket : public CAtlArray<BYTE>
+#define PACKET_AAC_RAW 0x0001
+
+class CPacket : public std::vector<BYTE>
 {
 public:
-	DWORD TrackNumber		= 0;
-	BOOL bDiscontinuity		= FALSE;
-	BOOL bSyncPoint			= FALSE;
-	REFERENCE_TIME rtStart	= INVALID_TIME;
-	REFERENCE_TIME rtStop	= INVALID_TIME;
-	AM_MEDIA_TYPE* pmt		= NULL;
+	DWORD TrackNumber      = 0;
+	BOOL bDiscontinuity    = FALSE;
+	BOOL bSyncPoint        = FALSE;
+	REFERENCE_TIME rtStart = INVALID_TIME;
+	REFERENCE_TIME rtStop  = INVALID_TIME;
+	AM_MEDIA_TYPE* pmt     = nullptr;
+
+	DWORD Flag             = 0;
+
 	virtual ~CPacket() {
 		DeleteMediaType(pmt);
 	}
-	void SetData(const void* ptr, DWORD len) {
-		SetCount(len);
-		memcpy(GetData(), ptr, len);
+	bool SetCount(const size_t newsize) {
+		try {
+			resize(newsize);
+		}
+		catch (...) {
+			return false;
+		}
+		return true;
+	}
+	void SetData(const CPacket& packet) {
+		*this = packet;
+	}
+	void SetData(const void* ptr, const size_t size) {
+		resize(size);
+		memcpy(data(), ptr, size);
+	}
+	void AppendData(const CPacket& packet) {
+		insert(cend(), packet.cbegin(), packet.cend());
+	}
+	void AppendData(const void* ptr, const size_t size) {
+		const size_t oldsize = this->size();
+		resize(oldsize + size);
+		memcpy(data() + oldsize, ptr, size);
+	}
+	void RemoveHead(const size_t size) {
+		erase(begin(), begin() + size);
 	}
 };
 
-class CPacketQueue
-	: public CCritSec
-	, protected CAutoPtrList<CPacket>
+class CPacketQueue : protected std::deque<CAutoPtr<CPacket>>
 {
 	size_t m_size = 0;
+	std::mutex m_mutex;
 
 public:
-	CPacketQueue();
 	void Add(CAutoPtr<CPacket> p);
 	CAutoPtr<CPacket> Remove();
+	void RemoveSafe(CAutoPtr<CPacket>& p, size_t& count);
 	void RemoveAll();
-	size_t GetCount();
-	size_t GetSize();
-	REFERENCE_TIME GetDuration();
+	const size_t GetCount();
+	const size_t GetSize();
+	const REFERENCE_TIME GetDuration();
 };

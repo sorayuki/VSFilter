@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,12 +20,12 @@
 
 #include "stdafx.h"
 #include "BaseSub.h"
-#include "../DSUtil/vd.h"
 
 CBaseSub::CBaseSub(SUBTITLE_TYPE nType)
 	: m_nType(nType)
 	, m_bResizedRender(FALSE)
 	, m_pTempSpdBuff(NULL)
+	, convertType(ColorConvert::convertType::DEFAULT)
 {
 }
 
@@ -65,6 +65,12 @@ void CBaseSub::FinalizeRender(SubPicDesc& spd)
 		m_bResizedRender = FALSE;
 
 		// StretchBlt ...
-		BitBltFromRGBToRGBStretch(spd.w, spd.h, (BYTE*)spd.bits, spd.pitch, 32, m_spd.w, m_spd.h, (BYTE*)m_spd.bits, m_spd.pitch, 32);
+		int filter = (spd.w < m_spd.w && spd.h < m_spd.h) ? CResampleRGB32::FILTER_BOX : CResampleRGB32::FILTER_BILINEAR;
+
+		HRESULT hr = m_resample.SetParameters(spd.w, spd.h, m_spd.w, m_spd.h, filter, true);
+		if (S_OK == hr) {
+			hr = m_resample.Process((BYTE*)spd.bits, (BYTE*)m_spd.bits);
+		}
+		ASSERT(hr == S_OK);
 	}
 }

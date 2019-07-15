@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -25,17 +25,17 @@
 #include "Systray.h"
 
 // hWnd == INVALID_HANDLE_VALUE - get name, hWnd != INVALID_HANDLE_VALUE - show ppage
-static TCHAR* CallPPage(IFilterGraph* pGraph, int idx, HWND hWnd);
+static WCHAR* CallPPage(IFilterGraph* pGraph, int idx, HWND hWnd);
 
 static HHOOK g_hHook = (HHOOK)INVALID_HANDLE_VALUE;
 
-static UINT WM_DVSPREVSUB = RegisterWindowMessage(_T("WM_DVSPREVSUB"));
-static UINT WM_DVSNEXTSUB = RegisterWindowMessage(_T("WM_DVSNEXTSUB"));
-static UINT WM_DVSHIDESUB = RegisterWindowMessage(_T("WM_DVSHIDESUB"));
-static UINT WM_DVSSHOWSUB = RegisterWindowMessage(_T("WM_DVSSHOWSUB"));
-static UINT WM_DVSSHOWHIDESUB = RegisterWindowMessage(_T("WM_DVSSHOWHIDESUB"));
-static UINT s_uTaskbarRestart = RegisterWindowMessage(_T("TaskbarCreated"));
-static UINT WM_NOTIFYICON = RegisterWindowMessage(_T("MYWM_NOTIFYICON"));
+static UINT WM_DVSPREVSUB = RegisterWindowMessage(L"WM_DVSPREVSUB");
+static UINT WM_DVSNEXTSUB = RegisterWindowMessage(L"WM_DVSNEXTSUB");
+static UINT WM_DVSHIDESUB = RegisterWindowMessage(L"WM_DVSHIDESUB");
+static UINT WM_DVSSHOWSUB = RegisterWindowMessage(L"WM_DVSSHOWSUB");
+static UINT WM_DVSSHOWHIDESUB = RegisterWindowMessage(L"WM_DVSSHOWHIDESUB");
+static UINT s_uTaskbarRestart = RegisterWindowMessage(L"TaskbarCreated");
+static UINT WM_NOTIFYICON = RegisterWindowMessage(L"MYWM_NOTIFYICON");
 
 LRESULT CALLBACK HookProc(UINT code, WPARAM wParam, LPARAM lParam)
 {
@@ -109,7 +109,7 @@ void CSystrayWindow::OnDestroy()
 	tnid.cbSize = sizeof(NOTIFYICONDATA);
 	tnid.hWnd = m_hWnd;
 	tnid.uID = IDI_ICON1;
-	Shell_NotifyIcon(NIM_DELETE, &tnid);
+	Shell_NotifyIconW(NIM_DELETE, &tnid);
 
 	if (g_hHook != INVALID_HANDLE_VALUE) {
 		UnhookWindowsHookEx(g_hHook);
@@ -159,13 +159,13 @@ LRESULT CSystrayWindow::OnTaskBarRestart(WPARAM, LPARAM)
 		tnid.cbSize = sizeof(NOTIFYICONDATA);
 		tnid.hWnd = m_hWnd;
 		tnid.uID = IDI_ICON1;
-		tnid.hIcon = (HICON)LoadIcon(AfxGetResourceHandle(), MAKEINTRESOURCE(IDI_ICON1));
-		//tnid.hIcon = (HICON)LoadImage(AfxGetResourceHandle(), MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, 0, 0, LR_LOADTRANSPARENT);
+		tnid.hIcon = (HICON)LoadIcon(AfxGetResourceHandle(), MAKEINTRESOURCEW(IDI_ICON1));
+		//tnid.hIcon = (HICON)LoadImage(AfxGetResourceHandle(), MAKEINTRESOURCEW(IDI_ICON1), IMAGE_ICON, 0, 0, LR_LOADTRANSPARENT);
 		tnid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
 		tnid.uCallbackMessage = WM_NOTIFYICON;
-		_tcscpy_s(tnid.szTip, _T("DirectVobSub"));
+		wcscpy_s(tnid.szTip, L"DirectVobSub");
 
-		BOOL res = Shell_NotifyIcon(NIM_ADD, &tnid);
+		BOOL res = Shell_NotifyIconW(NIM_ADD, &tnid);
 
 		if (tnid.hIcon) {
 			DestroyIcon(tnid.hIcon);
@@ -242,7 +242,7 @@ LRESULT CSystrayWindow::OnNotifyIcon(WPARAM wParam, LPARAM lParam)
 			popup.CreatePopupMenu();
 
 			for (size_t j = 0; j < pStreams.GetCount(); j++) {
-				bool fMMSwitcher = !names[j].Compare(_T("Morgan Stream Switcher"));
+				bool fMMSwitcher = !names[j].Compare(L"Morgan Stream Switcher");
 
 				DWORD cStreams = 0;
 				pStreams[j]->Count(&cStreams);
@@ -250,7 +250,7 @@ LRESULT CSystrayWindow::OnNotifyIcon(WPARAM wParam, LPARAM lParam)
 				DWORD flags, group, prevgroup = (DWORD)-1;
 
 				for (UINT i = 0; i < cStreams; i++) {
-					WCHAR* pName = NULL;
+					WCHAR* pName = nullptr;
 
 					if (S_OK == pStreams[j]->Info(i, 0, &flags, 0, &group, &pName, 0, 0)) {
 						if (prevgroup != group && i > 1) {
@@ -276,10 +276,10 @@ LRESULT CSystrayWindow::OnNotifyIcon(WPARAM wParam, LPARAM lParam)
 
 			int i = 0;
 
-			TCHAR* str;
+			WCHAR* str;
 			str = CallPPage(m_tbid->graph, i, (HWND)INVALID_HANDLE_VALUE);
 			while (str) {
-				if (_tcsncmp(str, _T("DivX MPEG"), 9) || m_tbid->fRunOnce) { // divx3's ppage will crash if the graph hasn't been run at least once yet
+				if (wcsncmp(str, L"DivX MPEG", 9) || m_tbid->fRunOnce) { // divx3's ppage will crash if the graph hasn't been run at least once yet
 					popup.AppendMenu(MF_ENABLED|MF_STRING|MF_UNCHECKED, (1<<14)|(i), str);
 				}
 
@@ -323,14 +323,14 @@ DWORD CALLBACK SystrayThreadProc(void* pParam)
 	AFX_MANAGE_STATE(AfxGetStaticModuleState());
 
 	CSystrayWindow wnd((SystrayIconData*)pParam);
-	if (!wnd.CreateEx(0, AfxRegisterWndClass(0), _T("DVSWND"), WS_OVERLAPPED, CRect(0, 0, 0, 0), NULL, 0, NULL)) {
+	if (!wnd.CreateEx(0, AfxRegisterWndClass(0), L"DVSWND", WS_OVERLAPPED, CRect(0, 0, 0, 0), nullptr, 0, nullptr)) {
 		return (DWORD)-1;
 	}
 
 	((SystrayIconData*)pParam)->hSystrayWnd = wnd.m_hWnd;
 
 	MSG msg;
-	while (GetMessage(&msg, NULL/*wnd.m_hWnd*/, 0, 0)) {
+	while (GetMessage(&msg, nullptr/*wnd.m_hWnd*/, 0, 0)) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
@@ -341,15 +341,15 @@ DWORD CALLBACK SystrayThreadProc(void* pParam)
 // TODO: replace this function
 
 // hWnd == INVALID_HANDLE_VALUE - get name, hWnd != INVALID_HANDLE_VALUE - show ppage
-static TCHAR* CallPPage(IFilterGraph* pGraph, int idx, HWND hWnd)
+static WCHAR* CallPPage(IFilterGraph* pGraph, int idx, HWND hWnd)
 {
 	int i = 0;
 	//bool fFound = false;
 
-	WCHAR* wstr = NULL;
+	WCHAR* wstr = nullptr;
 	CComPtr<IBaseFilter> pFilter;
 	CAUUID caGUID;
-	caGUID.pElems = NULL;
+	caGUID.pElems = nullptr;
 
 	BeginEnumFilters(pGraph, pEF, pBF) {
 		CComQIPtr<ISpecifyPropertyPages> pSPS = pBF;
@@ -369,15 +369,15 @@ static TCHAR* CallPPage(IFilterGraph* pGraph, int idx, HWND hWnd)
 	}
 	EndEnumFilters
 
-	TCHAR* ret = NULL;
+	WCHAR* ret = nullptr;
 
 	if (pFilter) {
 		if (hWnd != INVALID_HANDLE_VALUE) {
 			ShowPPage(pFilter, hWnd);
 		} else {
-			ret = DNew TCHAR[wcslen(wstr)+1];
+			ret = DNew WCHAR[wcslen(wstr)+1];
 			if (ret) {
-				_tcscpy_s(ret, wcslen(wstr) + 1, CString(wstr));
+				wcscpy_s(ret, wcslen(wstr) + 1, CString(wstr));
 			}
 		}
 	}

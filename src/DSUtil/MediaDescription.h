@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,9 +20,9 @@
 
 #pragma once
 
-#include <atlcoll.h>
+#include <vector>
 
-static const TCHAR* MPEG2_Profile[]=
+static const WCHAR* MPEG2_Profile[] =
 {
 	L"4:2:2",
 	L"High Profile",
@@ -34,7 +34,7 @@ static const TCHAR* MPEG2_Profile[]=
 	L"7",
 };
 
-static const TCHAR* MPEG2_Level[]=
+static const WCHAR* MPEG2_Level[] =
 {
 	L"0",
 	L"1",
@@ -74,13 +74,13 @@ static int GetHighestBitSet32(unsigned long _Value)
 	}
 }
 
-static CString FormatBitrate(double _Bitrate)
+static CString FormatBitrate(const DWORD _Bitrate)
 {
 	CString Temp;
 	if (_Bitrate > 20000000) { // More than 2 mbit
-		Temp.Format(L"%.2f mbit/s", double(_Bitrate)/1000000.0);
+		Temp.Format(L"%u mbit/s", _Bitrate / 1000000);
 	} else {
-		Temp.Format(L"%.1f kbit/s", double(_Bitrate)/1000.0);
+		Temp.Format(L"%u kbit/s", _Bitrate / 1000);
 	}
 
 	return Temp;
@@ -99,5 +99,5 @@ static CString FormatString(const wchar_t *pszFormat, ...)
 	return Temp;
 }
 
-CString GetMediaTypeDesc(CAtlArray<CMediaType>& mts, LPCWSTR pName, CBaseFilter* pFilter);
+CString GetMediaTypeDesc(std::vector<CMediaType>& mts, LPCWSTR pName, CBaseFilter* pFilter);
 CString GetMediaTypeDesc(const CMediaType* pmt, LPCWSTR pName);

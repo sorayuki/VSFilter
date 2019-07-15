@@ -1,5 +1,5 @@
 /*
- * (C) 2012-2016 see Authors.txt
+ * (C) 2012-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -24,6 +24,7 @@
 #include "H264Nalu.h"
 #include "GolombBuffer.h"
 #include "VideoParser.h"
+#include "Log.h"
 
 struct dirac_source_params {
 	unsigned width;
@@ -94,7 +95,7 @@ static const fraction_t dirac_frame_rate[] = {
 	{25, 2},
 };
 
-bool ParseDiracHeader(BYTE* data, int size, vc_params_t& params)
+bool ParseDiracHeader(const BYTE* data, const int size, vc_params_t& params)
 {
 	memset(&params, 0, sizeof(params));
 
@@ -186,36 +187,25 @@ namespace AVCParser {
 		return true;
 	}
 
-	static inline bool MatchValue(BYTE array[], size_t size, BYTE value)
-	{
-		for (size_t i = 0; i < size; i++) {
-			if (value == array[i]) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
 #define H264_PROFILE_MULTIVIEW_HIGH	118
 #define H264_PROFILE_STEREO_HIGH	128
-	bool ParseSequenceParameterSet(BYTE* data, int size, vc_params_t& params)
+	bool ParseSequenceParameterSet(const BYTE* data, const int size, vc_params_t& params)
 	{
 		static BYTE profiles[] = { 44, 66, 77, 88, 100, 110, 118, 122, 128, 144, 244 };
-		static BYTE levels[] = { 10, 11, 12, 13, 20, 21, 22, 30, 31, 32, 40, 41, 42, 50, 51, 52 };
+		static BYTE levels[] = { 10, 11, 12, 13, 20, 21, 22, 30, 31, 32, 40, 41, 42, 50, 51, 52, 60, 61, 62 };
 
 		CGolombBuffer gb(data, size, true);
 
 		memset(&params, 0, sizeof(params));
 
 		params.profile = gb.BitRead(8);
-		if (!MatchValue(profiles, _countof(profiles), params.profile)) {
+		if (std::find(std::cbegin(profiles), std::cend(profiles), params.profile) == std::cend(profiles)) {
 			goto error;
 		}
 
 		gb.BitRead(8);
 		params.level = gb.BitRead(8);
-		if (!MatchValue(levels, _countof(levels), params.level)) {
+		if (std::find(std::cbegin(levels), std::cend(levels), params.level) == std::cend(levels)) {
 			goto error;
 		}
 
@@ -391,11 +381,11 @@ namespace AVCParser {
 		unsigned int mb_Height = ((unsigned int)pic_height_in_map_units_minus1 + 1) * (2 - !params.interlaced);
 		BYTE CHROMA444 = (chroma_format_idc == 3);
 
-		params.width = 16 * mb_Width - (2u >> CHROMA444) * min(crop_right, (8u << CHROMA444) - 1);
+		params.width = 16 * mb_Width - (2u >> CHROMA444) * std::min(crop_right, (8u << CHROMA444) - 1);
 		if (!params.interlaced) {
-			params.height = 16 * mb_Height - (2u >> CHROMA444) * min(crop_bottom, (8u << CHROMA444) - 1);
+			params.height = 16 * mb_Height - (2u >> CHROMA444) * std::min(crop_bottom, (8u << CHROMA444) - 1);
 		} else {
-			params.height = 16 * mb_Height - (4u >> CHROMA444) * min(crop_bottom, (8u << CHROMA444) - 1);
+			params.height = 16 * mb_Height - (4u >> CHROMA444) * std::min(crop_bottom, (8u << CHROMA444) - 1);
 		}
 
 		if (params.height < 100 || params.width < 100) {
@@ -415,7 +405,7 @@ namespace AVCParser {
 } // namespace AVCParser
 
 namespace HEVCParser {
-	void CreateSequenceHeaderAVC(BYTE* data, int size, DWORD* dwSequenceHeader, DWORD& cbSequenceHeader)
+	void CreateSequenceHeaderAVC(const BYTE* data, const int size, DWORD* dwSequenceHeader, DWORD& cbSequenceHeader)
 	{
 		// copy VideoParameterSets(VPS), SequenceParameterSets(SPS) and PictureParameterSets(PPS) from AVCDecoderConfigurationRecord
 
@@ -424,9 +414,9 @@ namespace HEVCParser {
 			return;
 		}
 
-		BYTE* src = data + 5;
+		BYTE* src = (BYTE*)data + 5;
 		BYTE* dst = (BYTE*)dwSequenceHeader;
-		BYTE* src_end = data + size;
+		const BYTE* src_end = data + size;
 		int spsCount = *(src++) & 0x1F;
 		int ppsCount = -1;
 
@@ -459,7 +449,7 @@ namespace HEVCParser {
 		}
 	}
 
-	void CreateSequenceHeaderHEVC(BYTE* data, int size, DWORD* dwSequenceHeader, DWORD& cbSequenceHeader)
+	void CreateSequenceHeaderHEVC(const BYTE* data, const int size, DWORD* dwSequenceHeader, DWORD& cbSequenceHeader)
 	{
 		// copy NAL units from HEVCDecoderConfigurationRecord
 
@@ -470,9 +460,9 @@ namespace HEVCParser {
 
 		int numOfArrays = data[22];
 
-		BYTE* src = data + 23;
+		BYTE* src = (BYTE*)data + 23;
 		BYTE* dst = (BYTE*)dwSequenceHeader;
-		BYTE* src_end = data + size;
+		const BYTE* src_end = data + size;
 
 		for (int j = 0; j < numOfArrays; j++) {
 			if (src + 3 > src_end) {
@@ -496,7 +486,7 @@ namespace HEVCParser {
 		}
 	}
 
-	static bool ParsePtl(CGolombBuffer& gb, int max_sub_layers_minus1, vc_params_t& params)
+	static bool ParsePtl(CGolombBuffer& gb, const int max_sub_layers_minus1, vc_params_t& params)
 	{
 		gb.BitRead(2);					// general_profile_space
 		gb.BitRead(1);					// general_tier_flag
@@ -670,7 +660,7 @@ namespace HEVCParser {
 		return true;
 	}
 
-	bool ParseSequenceParameterSet(BYTE* data, int size, vc_params_t& params)
+	bool ParseSequenceParameterSet(const BYTE* data, const int size, vc_params_t& params)
 	{
 		// Recommendation H.265 (04/13) ( http://www.itu.int/rec/T-REC-H.265-201304-I )
 		// 7.3.2.2  Sequence parameter set RBSP syntax
@@ -790,7 +780,7 @@ namespace HEVCParser {
 								return false;
 							}
 						} else {
-							coef_num = min(64, 1 << (4 + (size_id << 1)));
+							coef_num = std::min(64, 1 << (4 + (size_id << 1)));
 							if (size_id > 1) {
 								gb.SExpGolombRead();
 							}
@@ -916,8 +906,12 @@ namespace HEVCParser {
 		return true;
 	}
 
-	bool ParseVideoParameterSet(BYTE* data, int size, vc_params_t& params)
+	bool ParseVideoParameterSet(const BYTE* data, const int size, vc_params_t& params)
 	{
+		if (size < 15) {
+			return false;
+		}
+
 		CGolombBuffer gb(data, size, true);
 
 		int vps_id = gb.BitRead(4);
@@ -966,7 +960,7 @@ namespace HEVCParser {
 		return true;
 	}
 
-	bool ParseSequenceParameterSetHM91(BYTE* data, int size, vc_params_t& params)
+	bool ParseSequenceParameterSetHM91(const BYTE* data, const int size, vc_params_t& params)
 	{
 		// decode SPS
 		CGolombBuffer gb(data, size, true);
@@ -1021,7 +1015,7 @@ namespace HEVCParser {
 		return true;
 	}
 
-	bool ParseAVCDecoderConfigurationRecord(BYTE* data, int size, vc_params_t& params, int flv_hm)
+	bool ParseAVCDecoderConfigurationRecord(const BYTE* data, const int size, vc_params_t& params, const int flv_hm/* = 0*/)
 	{
 		params.clear();
 		if (size < 7) {
@@ -1047,7 +1041,7 @@ namespace HEVCParser {
 
 			//
 			if (flv_hm >= 90 && sps_len > 2) {
-				BYTE* sps_data = gb.GetBufferPos();
+				const BYTE* sps_data = gb.GetBufferPos();
 				if ((*sps_data >> 1 & 0x3f) == (BYTE)NALU_TYPE_HEVC_SPS) {
 					if (flv_hm >= 100) {
 						return ParseSequenceParameterSet(sps_data + 2, sps_len - 2, params);
@@ -1084,7 +1078,7 @@ namespace HEVCParser {
 		return true;
 	}
 
-	bool ParseHEVCDecoderConfigurationRecord(BYTE* data, int size, vc_params_t& params, bool parseSPS)
+	bool ParseHEVCDecoderConfigurationRecord(const BYTE* data, const int size, vc_params_t& params, const bool parseSPS)
 	{
 		// ISO/IEC 14496-15 Third edition (2013-xx-xx)
 		// 8.3.3.1  HEVC decoder configuration record
@@ -1097,7 +1091,7 @@ namespace HEVCParser {
 
 		// HEVCDecoderConfigurationRecord
 		uint8_t configurationVersion = gb.BitRead(8); // configurationVersion = 1 (or 0 for beta MKV DivX HEVC)
-		TRACE(L"%s", configurationVersion == 0 ? L"WARNING: beta MKV DivX HEVC\n" : L"");
+		DLog(L"%s", configurationVersion == 0 ? L"WARNING: beta MKV DivX HEVC" : L"");
 		if (configurationVersion > 1) {
 			return false;
 		}

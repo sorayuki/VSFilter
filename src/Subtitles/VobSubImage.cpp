@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -144,7 +144,7 @@ bool CVobSubImage::Decode(BYTE* lpData, int packetsize, int datasize, int t,
 		nPlane = 1 - nPlane;
 	}
 
-	rect.bottom = min(p.y, rect.bottom);
+	rect.bottom = std::min(p.y, rect.bottom);
 
 	if (fTrim) {
 		TrimSubImage();
@@ -213,7 +213,7 @@ void CVobSubImage::GetPacketInfo(const BYTE* lpData, int packetsize, int datasiz
 			}
 
 			if (i + len >= packetsize) {
-				TRACE(_T("Warning: Wrong subpicture parameter block ending\n"));
+				DLog(L"Warning: Wrong subpicture parameter block ending");
 				break;
 			}
 

@@ -1,5 +1,5 @@
 /*
-* (C) 2012-2016 see Authors.txt
+ * (C) 2012-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -40,21 +40,19 @@ CMPCSocket::CMPCSocket()
 				&& ERROR_SUCCESS == key.QueryStringValue(L"ProxyServer", m_sProxyServer.GetBufferSetLength(MAX_PATH), &len)) {
 			m_sProxyServer.ReleaseBufferSetLength(len);
 
-			CAtlList<CString> sl;
-			m_sProxyServer = Explode(m_sProxyServer, sl, ';');
-			POSITION pos = sl.GetHeadPosition();
-			while (pos) {
-				CAtlList<CString> sl2;
-				if (!Explode(sl.GetNext(pos), sl2, '=', 2).CompareNoCase(L"http")
-						&& sl2.GetCount() == 2) {
-					m_sProxyServer = sl2.GetTail();
+			std::list<CString> sl;
+			m_sProxyServer = Explode(m_sProxyServer, sl, L';');
+			for (const auto& item : sl) {
+				std::list<CString> sl2;
+				if (!Explode(item, sl2, L'=', 2).CompareNoCase(L"http") && sl2.size() == 2) {
+					m_sProxyServer = sl2.back();
 					break;
 				}
 			}
 
-			m_sProxyServer = Explode(m_sProxyServer, sl, ':');
-			if (sl.GetCount() > 1) {
-				m_nProxyPort = _tcstol(sl.GetTail(), NULL, 10);
+			m_sProxyServer = Explode(m_sProxyServer, sl, L':');
+			if (sl.size() > 1) {
+				m_nProxyPort = wcstol(sl.back(), nullptr, 10);
 			}
 
 			m_bProxyEnable = (ProxyEnable && !m_sProxyServer.IsEmpty() && m_nProxyPort);
@@ -79,7 +77,7 @@ BOOL CMPCSocket::Connect(CUrl url, BOOL bConnectOnly)
 		return FALSE;
 	}
 	if (url.GetUrlPathLength() == 0) {
-		url.SetUrlPath(_T("/"));
+		url.SetUrlPath(L"/");
 	}
 	if (url.GetPortNumber() == ATL_URL_INVALID_PORT_NUMBER) {
 		url.SetPortNumber(ATL_URL_DEFAULT_HTTP_PORT);
@@ -114,7 +112,7 @@ BOOL CMPCSocket::Connect(CUrl url, BOOL bConnectOnly)
 
 	if (m_bProxyEnable) {
 		DWORD dwUrlLen	= url.GetUrlLength() + 1;
-		TCHAR* szUrl	= new TCHAR[dwUrlLen];
+		WCHAR* szUrl	= new WCHAR[dwUrlLen];
 
 		// Retrieve the contents of the CUrl object
 		url.CreateUrl(szUrl, &dwUrlLen);
@@ -124,9 +122,8 @@ BOOL CMPCSocket::Connect(CUrl url, BOOL bConnectOnly)
 	}
 
 	CStringA sAddHeader;
-	POSITION pos = m_AddHeaderParams.GetHeadPosition();
-	while (pos) {
-		sAddHeader += (m_AddHeaderParams.GetNext(pos) + "\r\n");
+	for (const auto& item : m_AddHeaderParams) {
+		sAddHeader += (item + "\r\n");
 	}
 
 	m_RequestHdr.Format(
@@ -156,11 +153,11 @@ BOOL CMPCSocket::OnMessagePending()
 {
 	MSG msg;
 
-	if (::PeekMessage(&msg, NULL, WM_TIMER, WM_TIMER, PM_REMOVE)) {
+	if (::PeekMessageW(&msg, nullptr, WM_TIMER, WM_TIMER, PM_REMOVE)) {
 		if (msg.wParam == (UINT) m_nTimerID) {
-			TRACE(_T("CMPCSocket::OnMessagePending(WM_TIMER) PASSED!\n"));
+			DLog(L"CMPCSocket::OnMessagePending(WM_TIMER) PASSED!");
 			// Remove the message and call CancelBlockingCall.
-			::PeekMessage(&msg, NULL, WM_TIMER, WM_TIMER, PM_REMOVE);
+			::PeekMessageW(&msg, nullptr, WM_TIMER, WM_TIMER, PM_REMOVE);
 			CancelBlockingCall();
 			KillTimeOut();
 			return FALSE;  // No need for idle time processing.
@@ -178,13 +175,13 @@ void CMPCSocket::SetTimeOut(UINT uConnectTimeOut, UINT uReceiveTimeOut)
 
 BOOL CMPCSocket::SetTimeOut(UINT uTimeOut)
 {
-	m_nTimerID = SetTimer(NULL, 0, uTimeOut, NULL);
+	m_nTimerID = SetTimer(nullptr, 0, uTimeOut, nullptr);
 	return (m_nTimerID != 0);
 }
 
 BOOL CMPCSocket::KillTimeOut()
 {
-	return KillTimer(NULL, m_nTimerID);
+	return KillTimer(nullptr, m_nTimerID);
 }
 
 BOOL CMPCSocket::SendRequest()
@@ -212,22 +209,20 @@ BOOL CMPCSocket::SendRequest()
 #if (SOCKET_DUMPLOGFILE)
 	{
 		DWORD dwUrlLen	= m_url.GetUrlLength() + 1;
-		TCHAR* szUrl	= new TCHAR[dwUrlLen];
+		WCHAR* szUrl	= new WCHAR[dwUrlLen];
 		// Retrieve the contents of the CUrl object
 		m_url.CreateUrl(szUrl, &dwUrlLen);
 		CString path = szUrl;
 		delete [] szUrl;
 
-		LOG2FILE(L"===");
-		LOG2FILE(L"Request URL = %s", path);
-		LOG2FILE(L"Header:");
-		CAtlList<CStringA> sl;
+		Logger::Log2File(L"===");
+		Logger::Log2File(L"Request URL = %s", path);
+		Logger::Log2File(L"Header:");
+		std::list<CStringA> sl;
 		CStringA hdr = GetHeader();
 		Explode(hdr, sl, '\n');
-		POSITION pos = sl.GetHeadPosition();
-		while (pos) {
-			CStringA& hdrline = sl.GetNext(pos);
-			LOG2FILE(L"%s", CString(hdrline));
+		for (const auto& hdrline : sl) {
+			Logger::Log2File(L"%s", CString(hdrline));
 		}
 	}
 #endif
@@ -255,10 +250,10 @@ void CMPCSocket::SetUserAgent(CStringA UserAgent)
 
 void CMPCSocket::AddHeaderParams(CStringA sHeaderParam)
 {
-	m_AddHeaderParams.AddTail(sHeaderParam);
+	m_AddHeaderParams.push_back(sHeaderParam);
 }
 
 void CMPCSocket::ClearHeaderParams()
 {
-	m_AddHeaderParams.RemoveAll();
+	m_AddHeaderParams.clear();
 }

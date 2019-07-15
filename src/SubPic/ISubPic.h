@@ -22,7 +22,6 @@
 #pragma once
 
 #include <atlbase.h>
-#include <atlcoll.h>
 #include "CoordGeom.h"
 
 enum SUBTITLE_TYPE {
@@ -34,8 +33,8 @@ enum SUBTITLE_TYPE {
 	ST_XYSUBPIC
 };
 
-// flag for display only forced subtitles (PGS/VOBSUB)
-extern bool g_bForcedSubtitle;
+// flag for display only forced subtitles (PGS/VOBSUB/RTS)
+inline bool g_bForcedSubtitle = false;
 
 #pragma pack(push, 1)
 struct SubPicDesc {
@@ -87,7 +86,7 @@ public IUnknown {
 	STDMETHOD (Unlock) (RECT* pDirtyRect /*[in]*/) PURE;
 
 	STDMETHOD (AlphaBlt) (RECT* pSrc, RECT* pDst, SubPicDesc* pTarget = NULL /*[in]*/) PURE;
-	STDMETHOD (GetSourceAndDest) (RECT rcWindow /*[in]*/, RECT rcVideo /*[in]*/, BOOL bPositionRelative /*[in]*/, CPoint ShiftPos /*[in]*/, RECT* pRcSource /*[out]*/, RECT* pRcDest /*[out]*/, int xOffsetInPixels = 0 /*[in]*/) const PURE;
+	STDMETHOD (GetSourceAndDest) (RECT rcWindow /*[in]*/, RECT rcVideo /*[in]*/, BOOL bPositionRelative /*[in]*/, CPoint ShiftPos /*[in]*/, RECT* pRcSource /*[out]*/, RECT* pRcDest /*[out]*/, int xOffsetInPixels /*[in]*/, const BOOL bUseSpecialCase/*[in]*/) const PURE;
 	STDMETHOD (SetVirtualTextureSize) (const SIZE pSize, const POINT pTopLeft) PURE;
 
 	STDMETHOD_(REFERENCE_TIME, GetSegmentStart) () PURE;
@@ -185,6 +184,10 @@ public IUnknown {
 	STDMETHOD_(SIZE, GetVideoSize) () PURE;
 	STDMETHOD_(SIZE, GetVideoSizeAR) () PURE;
 	STDMETHOD_(void, SetPosition) (RECT w, RECT v) PURE;
+	STDMETHOD (SetRotation) (int rotation) PURE;
+	STDMETHOD_(int, GetRotation) () PURE;
+	STDMETHOD (SetFlip) (bool flip) PURE;
+	STDMETHOD_(bool, GetFlip) () PURE;
 	STDMETHOD_(bool, Paint) (bool fAll) PURE;
 
 	STDMETHOD_(void, SetTime) (REFERENCE_TIME rtNow) PURE;
@@ -197,10 +200,10 @@ public IUnknown {
 
 	STDMETHOD (GetDIB) (BYTE* lpDib, DWORD* size) PURE;
 
-	STDMETHOD (SetVideoAngle) (Vector v) PURE;
 	STDMETHOD (ClearPixelShaders) (int target) PURE;
 	STDMETHOD (AddPixelShader) (int target, LPCSTR sourceCode, LPCSTR profile) PURE;
 
+	STDMETHOD_(bool, ResizeDevice) () PURE;
 	STDMETHOD_(bool, ResetDevice) () PURE;
 	STDMETHOD_(bool, DisplayChange) () PURE;
 
@@ -219,7 +222,7 @@ public IPersist {
 	STDMETHOD_(int, GetStream) () PURE;
 	STDMETHOD (SetStream) (int iStream) PURE;
 	STDMETHOD (Reload) () PURE;
-
+	STDMETHOD (SetSourceTargetInfo)(CString yuvMatrix, CString inputRange, CString outpuRange) { return E_NOTIMPL; };
 	// TODO: get rid of IPersist to identify type and use only
 	// interface functions to modify the settings of the substream
 };

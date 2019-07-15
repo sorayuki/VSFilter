@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2015 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,7 +21,6 @@
 
 #include "stdafx.h"
 #include "DX9SubPic.h"
-#include <vmr9.h>
 
 //
 // CDX9SubPic
@@ -44,15 +43,13 @@ CDX9SubPic::~CDX9SubPic()
 		CAutoLock Lock(&CDX9SubPicAllocator::ms_SurfaceQueueLock);
 		// Add surface to cache
 		if (m_pAllocator) {
-			for (POSITION pos = m_pAllocator->m_AllocatedSurfaces.GetHeadPosition(); pos; ) {
-				POSITION ThisPos = pos;
-				CDX9SubPic *pSubPic = m_pAllocator->m_AllocatedSurfaces.GetNext(pos);
-				if (pSubPic == this) {
-					m_pAllocator->m_AllocatedSurfaces.RemoveAt(ThisPos);
+			for (auto it = m_pAllocator->m_AllocatedSurfaces.begin(), end = m_pAllocator->m_AllocatedSurfaces.end(); it != end; ++it) {
+				if (*it == this) {
+					m_pAllocator->m_AllocatedSurfaces.erase(it);
 					break;
 				}
 			}
-			m_pAllocator->m_FreeSurfaces.AddTail(m_pSurface);
+			m_pAllocator->m_FreeSurfaces.push_back(m_pSurface);
 		}
 	}
 }
@@ -119,7 +116,7 @@ STDMETHODIMP CDX9SubPic::CopyTo(ISubPic* pSubPic)
 	pDstSurf->GetDesc(&dstDesc);
 
 	RECT r;
-	SetRect(&r, 0, 0, min(srcDesc.Width, dstDesc.Width), min(srcDesc.Height, dstDesc.Height));
+	SetRect(&r, 0, 0, std::min(srcDesc.Width, dstDesc.Width), std::min(srcDesc.Height, dstDesc.Height));
 	POINT p = { 0, 0 };
 	hr = pD3DDev->UpdateSurface(pSrcSurf, &r, pDstSurf, &p);
 
@@ -363,8 +360,8 @@ CDX9SubPicAllocator::~CDX9SubPicAllocator()
 void CDX9SubPicAllocator::GetStats(int &_nFree, int &_nAlloc)
 {
 	CAutoLock Lock(&ms_SurfaceQueueLock);
-	_nFree = (int)m_FreeSurfaces.GetCount();
-	_nAlloc = (int)m_AllocatedSurfaces.GetCount();
+	_nFree = (int)m_FreeSurfaces.size();
+	_nAlloc = (int)m_AllocatedSurfaces.size();
 }
 
 void CDX9SubPicAllocator::ClearCache()
@@ -372,12 +369,11 @@ void CDX9SubPicAllocator::ClearCache()
 	{
 		// Clear the allocator of any remaining subpics
 		CAutoLock Lock(&ms_SurfaceQueueLock);
-		for (POSITION pos = m_AllocatedSurfaces.GetHeadPosition(); pos; ) {
-			CDX9SubPic *pSubPic = m_AllocatedSurfaces.GetNext(pos);
+		for (auto& pSubPic : m_AllocatedSurfaces) {
 			pSubPic->m_pAllocator = NULL;
 		}
-		m_AllocatedSurfaces.RemoveAll();
-		m_FreeSurfaces.RemoveAll();
+		m_AllocatedSurfaces.clear();
+		m_FreeSurfaces.clear();
 	}
 }
 
@@ -434,8 +430,9 @@ bool CDX9SubPicAllocator::Alloc(bool fStatic, ISubPic** ppSubPic)
 
 	if (!fStatic) {
 		CAutoLock cAutoLock(&ms_SurfaceQueueLock);
-		if (!m_FreeSurfaces.IsEmpty()) {
-		    pSurface = m_FreeSurfaces.RemoveHead();
+		if (!m_FreeSurfaces.empty()) {
+			pSurface = m_FreeSurfaces.front();
+			m_FreeSurfaces.pop_front();
 		}
 	}
 
@@ -459,7 +456,7 @@ bool CDX9SubPicAllocator::Alloc(bool fStatic, ISubPic** ppSubPic)
 
 	if (!fStatic) {
 		CAutoLock cAutoLock(&ms_SurfaceQueueLock);
-		m_AllocatedSurfaces.AddHead((CDX9SubPic *)*ppSubPic);
+		m_AllocatedSurfaces.push_front((CDX9SubPic *)*ppSubPic);
 	}
 
 	return true;

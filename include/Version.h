@@ -1,7 +1,7 @@
 #ifndef ISPP_INVOKED
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -34,28 +34,30 @@
 #define MAKE_STR(x)             DO_MAKE_STR(x)
 
 #define MPC_VERSION_MAJOR       1
-#define MPC_VERSION_MINOR       4
-#define MPC_VERSION_PATCH       6
+#define MPC_VERSION_MINOR       5
+#define MPC_VERSION_PATCH       3
 
 #define MPC_VERSION_STATUS      1
 // MPC_VERSION_STATUS: 0 - beta; 1 - stable
 
 #define MPC_WND_CLASS_NAME      "MPC-BE"
-#define MPC_YEAR_COMMENTS       "2002-2016"
+#define MPC_YEAR_COMMENTS       "2002-2019"
 #define MPC_VERSION_COMMENTS    "http://sourceforge.net/projects/mpcbe/"
 
 #ifndef ISPP_INVOKED
 
+#define MPC_WND_CLASS_NAMEW     _CRT_WIDE(MPC_WND_CLASS_NAME)
+
 #define MPC_COMP_NAME_STR       L"MPC-BE Team"
-#define MPC_COPYRIGHT_STR       L"Copyright © 2002-2016 all contributors, see Authors.txt"
+#define MPC_COPYRIGHT_STR       L"Copyright © 2002-2019 all contributors, see Authors.txt"
 
 #define MPC_VERSION_NUM         MPC_VERSION_MAJOR,MPC_VERSION_MINOR,MPC_VERSION_PATCH
-#define MPC_VERSION_STR         MAKE_STR(MPC_VERSION_MAJOR) "." \
-                                MAKE_STR(MPC_VERSION_MINOR) "." \
-                                MAKE_STR(MPC_VERSION_PATCH)
+#define MPC_VERSION_STR         MAKE_STR(MPC_VERSION_MAJOR) "." MAKE_STR(MPC_VERSION_MINOR) "." MAKE_STR(MPC_VERSION_PATCH)
+#define MPC_VERSION_WSTR       _CRT_WIDE(MPC_VERSION_STR)
 
-#define MPC_VERSION_NUM_SVN     MPC_VERSION_MAJOR,MPC_VERSION_MINOR,MPC_VERSION_PATCH,MPC_VERSION_REV
-#define MPC_VERSION_STR_SVN     MPC_VERSION_STR "." MAKE_STR(MPC_VERSION_REV)
+#define MPC_VERSION_SVN_NUM     MPC_VERSION_MAJOR,MPC_VERSION_MINOR,MPC_VERSION_PATCH,MPC_VERSION_REV
+#define MPC_VERSION_SVN_STR     MPC_VERSION_STR "." MAKE_STR(MPC_VERSION_REV)
+#define MPC_VERSION_SVN_WSTR    _CRT_WIDE(MPC_VERSION_SVN_STR)
 
 #endif
 

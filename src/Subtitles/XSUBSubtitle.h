@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2016 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -57,7 +57,7 @@ public:
 	void	Reset();
 	void	CleanOld(REFERENCE_TIME rt);
 
-	HRESULT	ParseSample (IMediaSample* pSample);
+	HRESULT	ParseSample(BYTE* pData, long nLen);
 	HRESULT	NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double dRate);
 
 private :

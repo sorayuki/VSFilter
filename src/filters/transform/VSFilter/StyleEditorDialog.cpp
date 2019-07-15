@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -36,7 +36,7 @@ END_MESSAGE_MAP()
 // CStyleEditorDialog dialog
 
 IMPLEMENT_DYNAMIC(CStyleEditorDialog, CDialog)
-CStyleEditorDialog::CStyleEditorDialog(CString title, STSStyle* pstss, CWnd* pParent /*=NULL*/)
+CStyleEditorDialog::CStyleEditorDialog(CString title, STSStyle* pstss, CWnd* pParent /*=nullptr*/)
 	: CDialog(CStyleEditorDialog::IDD, pParent)
 	, m_title(title)
 	, m_stss(*pstss)
@@ -122,17 +122,16 @@ void CStyleEditorDialog::UpdateControlData(bool fSave)
 		m_stss.scrAlignment = m_screenalignment+1;
 		m_stss.marginRect = m_margin;
 
-		for (ptrdiff_t i = 0; i < 4; i++) {
+		for (unsigned i = 0; i < 4; i++) {
 			m_stss.alpha[i] = 255-m_alpha[i];
 		}
 	} else {
-		m_font.SetWindowText(m_stss.fontName);
+		m_font.SetWindowTextW(m_stss.fontName);
 		m_iCharset = -1;
-		for (ptrdiff_t i = 0; i < CharSetLen; i++) {
+		for (int i = 0; i < CharSetLen; i++) {
 			CString str;
-			str.Format(_T("%s (%d)"), CharSetNames[i], CharSetList[i]);
-			m_charset.AddString(str);
-			m_charset.SetItemData(i, CharSetList[i]);
+			str.Format(L"%s (%d)", CharSetNames[i], CharSetList[i]);
+			AddStringData(m_charset, str, CharSetList[i]);
 			if (m_stss.charSet == CharSetList[i]) {
 				m_iCharset = i;
 			}
@@ -151,9 +150,9 @@ void CStyleEditorDialog::UpdateControlData(bool fSave)
 		m_scaleyspin.SetRange32(-10000, 10000);
 
 		m_borderstyle = m_stss.borderStyle;
-		m_borderwidth = min(m_stss.outlineWidthX, m_stss.outlineWidthY);
+		m_borderwidth = std::min(m_stss.outlineWidthX, m_stss.outlineWidthY);
 		m_borderwidthspin.SetRange32(0, 10000);
-		m_shadowdepth = min(m_stss.shadowDepthX, m_stss.shadowDepthY);
+		m_shadowdepth = std::min(m_stss.shadowDepthX, m_stss.shadowDepthY);
 		m_shadowdepthspin.SetRange32(0, 10000);
 
 		m_screenalignment = m_stss.scrAlignment-1;
@@ -163,7 +162,7 @@ void CStyleEditorDialog::UpdateControlData(bool fSave)
 		m_margintopspin.SetRange32(-10000, 10000);
 		m_marginbottomspin.SetRange32(-10000, 10000);
 
-		for (ptrdiff_t i = 0; i < 4; i++) {
+		for (unsigned i = 0; i < 4; i++) {
 			m_color[i].SetColorPtr(&m_stss.colors[i]);
 			m_alpha[i] = 255-m_stss.alpha[i];
 			m_alphasliders[i].SetRange(0, 255);
@@ -201,7 +200,7 @@ BOOL CStyleEditorDialog::OnInitDialog()
 {
 	CDialog::OnInitDialog();
 
-	SetWindowText(_T("Style Editor - \"") + m_title + _T("\""));
+	SetWindowTextW(L"Style Editor - \"" + m_title + L"\"");
 
 	UpdateControlData(false);
 
@@ -221,13 +220,13 @@ void CStyleEditorDialog::OnBnClickedButton1()
 	LOGFONT lf;
 	lf <<= m_stss;
 
-	CFontDialog dlg(&lf, CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_FORCEFONTEXIST | CF_SCALABLEONLY | CF_EFFECTS, NULL, this);
+	CFontDialog dlg(&lf, CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_FORCEFONTEXIST | CF_SCALABLEONLY | CF_EFFECTS, nullptr, this);
 	if (dlg.DoModal() == IDOK) {
 		CString str(lf.lfFaceName);
 		if (str.GetLength() > 16) {
-			str = str.Left(14) + _T("...");
+			str = str.Left(14) + L"...";
 		}
-		m_font.SetWindowText(str);
+		m_font.SetWindowTextW(str);
 
 		SelectByItemData(m_charset, lf.lfCharSet);
 
@@ -260,11 +259,11 @@ void CStyleEditorDialog::OnBnClickedCheck1()
 	UpdateData();
 
 	int avg = 0;
-	for (ptrdiff_t i = 0; i < 4; i++) {
+	for (unsigned i = 0; i < 4; i++) {
 		avg += m_alphasliders[i].GetPos();
 	}
 	avg /= 4;
-	for (ptrdiff_t i = 0; i < 4; i++) {
+	for (unsigned i = 0; i < 4; i++) {
 		m_alphasliders[i].SetPos(avg);
 	}
 }
@@ -273,7 +272,7 @@ void CStyleEditorDialog::OnHScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollB
 {
 	if (m_linkalphasliders && pScrollBar) {
 		int pos = ((CSliderCtrl*)pScrollBar)->GetPos();
-		for (ptrdiff_t i = 0; i < 4; i++) {
+		for (unsigned i = 0; i < 4; i++) {
 			m_alphasliders[i].SetPos(pos);
 		}
 	}

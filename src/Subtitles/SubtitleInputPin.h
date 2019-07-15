@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2016 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,6 +21,11 @@
 
 #pragma once
 
+#include <vector>
+#include <list>
+#include <thread>
+#include <condition_variable>
+
 #include "../SubPic/ISubPic.h"
 
 //
@@ -34,14 +39,35 @@ class CSubtitleInputPin : public CBaseInputPin
 	CCritSec* m_pSubLock;
 	CComPtr<ISubStream> m_pSubStream;
 
+	struct SubtitleSample {
+		REFERENCE_TIME rtStart, rtStop;
+		std::vector<BYTE> data;
+
+		SubtitleSample(REFERENCE_TIME rtStart, REFERENCE_TIME rtStop, BYTE* pData, size_t len)
+			: rtStart(rtStart)
+			, rtStop(rtStop)
+			, data(pData, pData + len) {}
+	};
+
+	std::list<std::unique_ptr<SubtitleSample>> m_sampleQueue;
+
+	bool m_bExitDecodingThread, m_bStopDecoding;
+	std::thread m_decodeThread;
+	std::mutex m_mutexQueue; // to protect m_sampleQueue
+	std::condition_variable m_condQueueReady;
+
+	void DecodeSamples();
+	REFERENCE_TIME DecodeSample(const std::unique_ptr<SubtitleSample>& pSample);
+	void InvalidateSamples();
+
 protected:
 	virtual void AddSubStream(ISubStream* pSubStream) PURE;
 	virtual void RemoveSubStream(ISubStream* pSubStream) PURE;
 	virtual void InvalidateSubtitle(REFERENCE_TIME rtStart, ISubStream* pSubStream) PURE;
-	bool		 IsHdmvSub(const CMediaType* pmt);
 
 public:
 	CSubtitleInputPin(CBaseFilter* pFilter, CCritSec* pLock, CCritSec* pSubLock, HRESULT* phr);
+	~CSubtitleInputPin();
 
 	HRESULT CheckMediaType(const CMediaType* pmt);
 	HRESULT CompleteConnect(IPin* pReceivePin);
@@ -51,7 +77,5 @@ public:
 	STDMETHODIMP Receive(IMediaSample* pSample);
 	STDMETHODIMP EndOfStream();
 
-	ISubStream* GetSubStream() {
-		return m_pSubStream;
-	}
+	ISubStream* GetSubStream() { return m_pSubStream; }
 };

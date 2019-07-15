@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,6 +20,7 @@
  */
 
 #include "stdafx.h"
+#include "SysVersion.h"
 #include "text.h"
 
 DWORD CharSetToCodePage(DWORD dwCharSet)
@@ -52,7 +53,7 @@ CStringA ConvertMBCS(CStringA str, DWORD SrcCharSet, DWORD DstCharSet)
 			  CharSetToCodePage(DstCharSet), 0,
 			  utf16, len,
 			  mbcs, str.GetLength()*6,
-			  NULL, NULL);
+			  nullptr, nullptr);
 
 	str = mbcs;
 
@@ -142,7 +143,7 @@ CString ExtractTag(CString tag, CMapStringToString& attribs, bool& fClosing)
 		for (i = 0; i < tag.GetLength() && _istspace(tag[i]); i++) {
 			;
 		}
-		tag = i < tag.GetLength() ? tag.Mid(i) : _T("");
+		tag = i < tag.GetLength() ? tag.Mid(i) : L"";
 		if (!tag.IsEmpty() && tag[0] == '\"') {
 			tag = tag.Mid(1);
 			i = tag.Find('\"');
@@ -156,7 +157,7 @@ CString ExtractTag(CString tag, CMapStringToString& attribs, bool& fClosing)
 		if (!param.IsEmpty()) {
 			attribs[attrib] = param;
 		}
-		tag = i+1 < tag.GetLength() ? tag.Mid(i+1) : _T("");
+		tag = i+1 < tag.GetLength() ? tag.Mid(i+1) : L"";
 	}
 
 	return type;
@@ -175,25 +176,132 @@ CStringA HtmlSpecialChars(CStringA str, bool bQuotes /*= false*/)
 	return str;
 }
 
-CAtlList<CString>& MakeLower(CAtlList<CString>& sl)
+CStringA WStrToUTF8(LPCWSTR lpWideCharStr)
 {
-	POSITION pos = sl.GetHeadPosition();
-	while (pos) {
-		sl.GetNext(pos).MakeLower();
+	CStringA str;
+	int len = WideCharToMultiByte(CP_UTF8, 0, lpWideCharStr, -1, nullptr, 0, nullptr, nullptr) - 1;
+	if (len > 0) {
+		str.ReleaseBuffer(WideCharToMultiByte(CP_UTF8, 0, lpWideCharStr, -1, str.GetBuffer(len), len + 1, nullptr, nullptr) - 1);
 	}
-	return sl;
+	return str;
 }
 
-CAtlList<CString>& MakeUpper(CAtlList<CString>& sl)
+CString ConvertToWStr(LPCSTR lpMultiByteStr, UINT CodePage)
 {
-	POSITION pos = sl.GetHeadPosition();
-	while (pos) {
-		sl.GetNext(pos).MakeUpper();
+	CString str;
+	int len = MultiByteToWideChar(CodePage, 0, lpMultiByteStr, -1, nullptr, 0) - 1;
+	if (len > 0) {
+		str.ReleaseBuffer(MultiByteToWideChar(CodePage, 0, lpMultiByteStr, -1, str.GetBuffer(len), len + 1) - 1);
 	}
-	return sl;
+	return str;
 }
 
-void FixFilename(CString& str)
+CString UTF8ToWStr(LPCSTR lpUTF8Str)
+{
+	return ConvertToWStr(lpUTF8Str, CP_UTF8);
+}
+
+void ReplaceCharacterU16(wchar_t& ch)
+{
+	if (!SysVersion::IsWin8orLater()) {
+		switch (ch) {
+		case 0x2705: // White Heavy Check Mark
+			ch = 0x2714; // Heavy Check Mark
+			return;
+		}
+	}
+}
+
+void ReplaceCharacterU32(uint32_t& ch)
+{
+	if (!SysVersion::IsWin10orLater()) {
+		switch (ch) {
+		case 0x1F388: // Balloon
+		case 0x1F534: // Large Red Circle
+		case 0x1F535: // Large Blue Circle
+			ch = 0x25CF; // Black Circle
+			return;
+		}
+		if (ch >= 0x1F600 && ch <= 0x1F64F) { // Emoticons
+			ch = 0x263A; // White Smiling Face
+		}
+		else if (ch >= 0x1F300) {
+			ch = 0x0020;
+		}
+	}
+}
+
+CString AltUTF8ToWStr(LPCSTR lpUTF8Str) // Use if MultiByteToWideChar() function does not work.
+{
+	if (!lpUTF8Str) {
+		return L"";
+	}
+
+	CString str;
+	// Don't use MultiByteToWideChar(), some characters are not well decoded
+	const unsigned char* Z = (const unsigned char*)lpUTF8Str;
+	while (*Z) { //0 is end
+		//1 byte
+		if (*Z < 0x80) {
+			str += (wchar_t)(*Z);
+			Z++;
+		}
+		//2 bytes
+		else if ((*Z & 0xE0) == 0xC0) {
+			if ((*(Z + 1) & 0xC0) == 0x80) {
+				str += (wchar_t)((((wchar_t)(*Z & 0x1F)) << 6) | (*(Z + 1) & 0x3F));
+				Z += 2;
+			} else {
+				return L""; //Bad character
+			}
+		}
+		//3 bytes
+		else if ((*Z & 0xF0) == 0xE0) {
+			if ((*(Z + 1) & 0xC0) == 0x80 && (*(Z + 2) & 0xC0) == 0x80) {
+				wchar_t u16 = (wchar_t)((((wchar_t)(*Z & 0x0F)) << 12) | ((*(Z + 1) & 0x3F) << 6) | (*(Z + 2) & 0x3F));
+				ReplaceCharacterU16(u16);
+				str += u16;
+
+				Z += 3;
+			} else {
+				return L""; //Bad character
+			}
+		}
+		//4 bytes
+		else if ((*Z & 0xF8) == 0xF0) {
+			if ((*(Z + 1) & 0xC0) == 0x80 && (*(Z + 2) & 0xC0) == 0x80 && (*(Z + 3) & 0xC0) == 0x80) {
+				uint32_t u32 = ((uint32_t)(*Z & 0x0F) << 18) | ((uint32_t)(*(Z + 1) & 0x3F) << 12) | ((uint32_t)(*(Z + 2) & 0x3F) << 6) | ((uint32_t)*(Z + 3) & 0x3F);
+				ReplaceCharacterU32(u32);
+				if (u32 <= UINT16_MAX) {
+					str += (wchar_t)u32;
+				} else {
+					str += (wchar_t)((((u32 - 0x010000) & 0x000FFC00) >> 10) | 0xD800);
+					str += (wchar_t)((u32 & 0x000003FF) | 0xDC00);
+				}
+				Z += 4;
+			} else {
+				return L""; //Bad character
+			}
+		}
+		else {
+			return L""; //Bad character
+		}
+	}
+
+	return str;
+}
+
+CString UTF8orLocalToWStr(LPCSTR lpMultiByteStr)
+{
+	CString str = AltUTF8ToWStr(lpMultiByteStr);
+	if (str.IsEmpty()) {
+		str = ConvertToWStr(lpMultiByteStr, CP_ACP); // Trying Local...
+	}
+
+	return str;
+}
+
+void FixFilename(CStringW& str)
 {
 	str.Trim();
 
@@ -208,23 +316,76 @@ void FixFilename(CString& str)
 			case '*':
 			case '|':
 			case ':':
-				str.SetAt(i, '_');
+				str.GetBuffer()[i] = '_';
 		}
 	}
 
 	CString tmp;
-	// not support the following file names: "con", "con.txt" "con.name.txt". But supported "name.con" and "name.con.txt".
+	// not support the following file names: "con", "con.txt" "con.name.txt". But supported "content" "name.con" and "name.con.txt".
 	if (str.GetLength() == 3 || str.Find('.') == 3) {
 		tmp = str.Left(3).MakeUpper();
-		if (tmp == _T("CON") || tmp == _T("AUX") || tmp == _T("PRN") || tmp == _T("NUL")) {
-			str = _T("___") + str.Mid(3);
+		if (tmp == L"CON" || tmp == L"AUX" || tmp == L"PRN" || tmp == L"NUL") {
+			LPWSTR buffer = str.GetBuffer();
+			buffer[0] = '_';
+			buffer[1] = '_';
+			buffer[2] = '_';
 		}
 	}
-	if (str.GetLength() == 4 || str.Find('.') == 4) {
+	else if (str.GetLength() == 4 || str.Find('.') == 4) {
 		tmp = str.Left(4).MakeUpper();
-		if (tmp == _T("COM1") || tmp == _T("COM2") || tmp == _T("COM3") || tmp == _T("COM4") ||
-				tmp == _T("LPT1") || tmp == _T("LPT2") || tmp == _T("LPT3")) {
-			str = _T("____") + str.Mid(4);
+		if (tmp == L"COM1" || tmp == L"COM2" || tmp == L"COM3" || tmp == L"COM4" || tmp == L"LPT1" || tmp == L"LPT2" || tmp == L"LPT3") {
+			LPWSTR buffer = str.GetBuffer();
+			buffer[0] = '_';
+			buffer[1] = '_';
+			buffer[2] = '_';
+			buffer[3] = '_';
+		}
+	}
+}
+
+void EllipsisURL(CStringW& url, const int maxlen)
+{
+	if (url.GetLength() > maxlen) {
+		int k = url.Find(L"://");
+		if (k > 0) {
+			k = url.Find('/', k+1);
+			if (k > 0) {
+				int q = url.Find('?', k+1);
+				if (q > 0 && q < maxlen) {
+					k = q;
+				} else {
+					while ((q = url.Find('/', k+1)) > 0 && q < maxlen) {
+						k = q;
+					}
+				}
+				url.Truncate(std::max(maxlen, k));
+				url.Append(L"...");
+			}
+		}
+	}
+}
+
+void EllipsisPath(CStringW& path, const int maxlen)
+{
+	if (path.GetLength() > maxlen) {
+		int k = -1;
+		if (path.Left(2) == "\\\\") {
+			k = path.Find('\\', k+1);
+		}
+		else if (path.Mid(1, 2) == ":\\") {
+			k = 2;
+		}
+
+		if (k > 0) {
+			const int n = path.ReverseFind('\\');
+			if (n > k) {
+				const int midlen = maxlen + n - path.GetLength();
+				int q = -1;
+				while ((q = path.Find('\\', k+1)) > 0 && q < midlen) {
+					k = q;
+				}
+				path = path.Left(k + 1) + L"..." + path.Mid(n);
+			}
 		}
 	}
 }
@@ -233,17 +394,30 @@ CString FormatNumber(CString szNumber, bool bNoFractionalDigits /*= true*/)
 {
 	CString ret;
 
-	int nChars = GetNumberFormat(LOCALE_USER_DEFAULT, 0, szNumber, NULL, NULL, 0);
-	GetNumberFormat(LOCALE_USER_DEFAULT, 0, szNumber, NULL, ret.GetBuffer(nChars), nChars);
+	int nChars = GetNumberFormatW(LOCALE_USER_DEFAULT, 0, szNumber, nullptr, nullptr, 0);
+	GetNumberFormatW(LOCALE_USER_DEFAULT, 0, szNumber, nullptr, ret.GetBuffer(nChars), nChars);
 	ret.ReleaseBuffer();
 
 	if (bNoFractionalDigits) {
-		TCHAR szNumberFractionalDigits[2] = {0};
-		GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_IDIGITS, szNumberFractionalDigits, _countof(szNumberFractionalDigits));
-		int nNumberFractionalDigits = _tcstol(szNumberFractionalDigits, NULL, 10);
+		WCHAR szNumberFractionalDigits[2] = {0};
+		GetLocaleInfoW(LOCALE_USER_DEFAULT, LOCALE_IDIGITS, szNumberFractionalDigits, _countof(szNumberFractionalDigits));
+		int nNumberFractionalDigits = wcstol(szNumberFractionalDigits, nullptr, 10);
 		if (nNumberFractionalDigits) {
 			ret.Truncate(ret.GetLength() - nNumberFractionalDigits - 1);
 		}
+	}
+
+	return ret;
+}
+
+CStringW FourccToWStr(uint32_t fourcc)
+{
+	CStringW ret;
+
+	for (unsigned i = 0; i < 4; i++) {
+		const uint32_t c = fourcc & 0xff;
+		ret.AppendFormat(c < 32 ? L"[%u]" : L"%C", c);
+		fourcc >>= 8;
 	}
 
 	return ret;

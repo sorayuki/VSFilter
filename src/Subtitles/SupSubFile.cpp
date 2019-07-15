@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Alexandr Vodiannikov aka "Aleksoid1978" (Aleksoid1978@mail.ru)
+ * (C) 2012-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -85,13 +85,13 @@ bool CSupSubFile::Open(CString fn, CString name/* = L""*/, CString videoName/* =
 		return false;
 	}
 
-	m_fname			= fn;
-    if (name.IsEmpty()) {
-        m_Subname	= Subtitle::GuessSubtitleName(fn, videoName);
-    } else {
-        m_Subname	= name;
-    }
-	m_pSub			= DNew CHdmvSub();
+	m_fname = fn;
+	if (name.IsEmpty()) {
+		m_Subname = Subtitle::GuessSubtitleName(fn, videoName);
+	} else {
+		m_Subname = name;
+	}
+	m_pSub = DNew CHdmvSub();
 
 	m_Thread = AfxBeginThread(::ThreadProc, static_cast<LPVOID>(this));
 
@@ -189,16 +189,13 @@ STDMETHODIMP_(bool) CSupSubFile::IsAnimated(POSITION pos)
 STDMETHODIMP CSupSubFile::Render(SubPicDesc& spd, REFERENCE_TIME rt, double fps, RECT& bbox)
 {
 	CAutoLock cAutoLock(&m_csCritSec);
-	m_pSub->Render(spd, rt, bbox);
-
-	return S_OK;
+	return m_pSub->Render(spd, rt, bbox);
 }
 
 STDMETHODIMP CSupSubFile::GetTextureSize(POSITION pos, SIZE& MaxTextureSize, SIZE& VideoSize, POINT& VideoTopLeft)
 {
 	CAutoLock cAutoLock(&m_csCritSec);
-	HRESULT hr = m_pSub->GetTextureSize(pos, MaxTextureSize, VideoSize, VideoTopLeft);
-	return hr;
+	return m_pSub->GetTextureSize(pos, MaxTextureSize, VideoSize, VideoTopLeft);
 }
 
 // IPersist

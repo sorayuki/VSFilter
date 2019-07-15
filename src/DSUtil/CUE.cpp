@@ -1,5 +1,5 @@
 /*
- * (C) 2011-2014 see Authors.txt
+ * (C) 2011-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -38,14 +38,14 @@ CString GetCUECommand(CString& ln)
 	return c;
 }
 
-void MakeCUETitle(CString &Title, CString title, CString performer, UINT trackNum)
+void MakeCUETitle(CString &Title, const CString& title, const CString& performer, const UINT trackNum/* = UINT_MAX*/)
 {
 	if (performer.GetLength() > 0 && title.GetLength() > 0) {
-		Title.Format(_T("%02u. %s - %s"), trackNum, performer, title);
+		Title.Format(L"%02u. %s - %s", trackNum, performer, title);
 	} else if (performer.GetLength() > 0) {
-		Title.Format(_T("%02u. %s"), trackNum, performer);
+		Title.Format(L"%02u. %s", trackNum, performer);
 	} else if (title.GetLength() > 0) {
-		Title.Format(_T("%02u. %s"), trackNum, title);
+		Title.Format(L"%02u. %s", trackNum, title);
 	}
 
 	if (trackNum == UINT_MAX && Title.GetLength() > 0) {
@@ -53,7 +53,7 @@ void MakeCUETitle(CString &Title, CString title, CString performer, UINT trackNu
 	}
 }
 
-bool ParseCUESheet(CString cueData, CAtlList<Chapters> &ChaptersList, CString& Title, CString& Performer)
+bool ParseCUESheet(CString cueData, std::list<Chapters> &ChaptersList, CString& Title, CString& Performer)
 {
 	BOOL fAudioTrack;
 	int track_no = -1, /*index, */index_cnt = 0;
@@ -64,53 +64,54 @@ bool ParseCUESheet(CString cueData, CAtlList<Chapters> &ChaptersList, CString& T
 	Title.Empty();
 	Performer.Empty();
 
-	CAtlList<CString> cuelines;
-	Explode(cueData, cuelines, '\n');
+	std::list<CString> cuelines;
+	Explode(cueData, cuelines, L'\n');
 
-	if (cuelines.GetCount() <= 1) {
+	if (cuelines.size() <= 1) {
 		return false;
 	}
 
-	while (cuelines.GetCount()) {
-		CString cueLine	= cuelines.RemoveHead().Trim();
-		CString cmd		= GetCUECommand(cueLine);
+	for (CString cueLine : cuelines) {
+		cueLine.Trim();
 
-		if (cmd == _T("TRACK")) {
+		CString cmd = GetCUECommand(cueLine);
+
+		if (cmd == L"TRACK") {
 			if (rt != _I64_MIN && track_no != -1 && index_cnt) {
 				MakeCUETitle(TrackTitle, title, performer, track_no);
 				if (!TrackTitle.IsEmpty()) {
-					ChaptersList.AddTail(Chapters(TrackTitle, rt));
+					ChaptersList.push_back(Chapters{TrackTitle, rt});
 				}
 			}
 			rt = _I64_MIN;
 			index_cnt = 0;
 
-			TCHAR type[256];
-			swscanf_s(cueLine, _T("%d %s"), &track_no, type, _countof(type)-1);
-			fAudioTrack = (wcscmp(type, _T("AUDIO")) == 0);
-			TrackTitle.Format(_T("Track %02d"), track_no);
-		} else if (cmd == _T("TITLE")) {
-			cueLine.Trim(_T(" \""));
+			WCHAR type[256];
+			swscanf_s(cueLine, L"%d %s", &track_no, type, _countof(type));
+			fAudioTrack = (wcscmp(type, L"AUDIO") == 0);
+			TrackTitle.Format(L"Track %02d", track_no);
+		} else if (cmd == L"TITLE") {
+			cueLine.Trim(L" \"");
 			title = cueLine;
 
 			if (track_no == -1) {
 				Title = title;
 			}
-		} else if (cmd == _T("PERFORMER")) {
-			cueLine.Trim(_T(" \""));
+		} else if (cmd == L"PERFORMER") {
+			cueLine.Trim(L" \"");
 			performer = cueLine;
 
 			if (track_no == -1) {
 				Performer = performer;
 			}
-		} else if (cmd == _T("INDEX")) {
-			int idx, mm, ss, ff;
-			swscanf_s(cueLine, _T("%d %d:%d:%d"), &idx, &mm, &ss, &ff);
-
-			if (fAudioTrack) {
-				index_cnt++;
-
-				rt = MILLISECONDS_TO_100NS_UNITS((mm * 60 + ss) * 1000);
+		} else if (cmd == L"INDEX") {
+			unsigned mm, ss, ff;
+			if (3 == swscanf_s(cueLine, L"01 %u:%u:%u", &mm, &ss, &ff)) {
+				// "INDEX 01" is required and denotes the start of the track
+				if (fAudioTrack) {
+					index_cnt++;
+					rt = UNITS * (mm*60 + ss) + UNITS * ff / 75;
+				}
 			}
 		}
 	}
@@ -118,11 +119,11 @@ bool ParseCUESheet(CString cueData, CAtlList<Chapters> &ChaptersList, CString& T
 	if (rt != _I64_MAX && track_no != -1 && index_cnt) {
 		MakeCUETitle(TrackTitle, title, performer, track_no);
 		if (!TrackTitle.IsEmpty()) {
-			ChaptersList.AddTail(Chapters(TrackTitle, rt));
+			ChaptersList.push_back(Chapters{TrackTitle, rt});
 		}
 	}
 
-	if (ChaptersList.GetCount()) {
+	if (ChaptersList.size()) {
 		return true;
 	} else {
 		return false;

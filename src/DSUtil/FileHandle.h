@@ -1,5 +1,5 @@
 /*
- * (C) 2011-2015 see Authors.txt
+ * (C) 2011-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,15 +20,19 @@
 
 #pragma once
 
-CString GetFileOnly(LPCTSTR Path);
-CString GetFolderOnly(LPCTSTR Path);
-CString AddSlash(LPCTSTR Path);
-CString RemoveSlash(LPCTSTR Path);
-CString GetFileExt(LPCTSTR Path);
-CString RenameFileExt(LPCTSTR Path, LPCTSTR Ext);
-BOOL	GetTemporaryFilePath(CString strExtension, CString& strFileName);
-CString CompactPath(LPCTSTR Path, UINT cchMax);
+CStringW GetFileOnly(LPCWSTR Path);
+CStringW GetFolderOnly(LPCWSTR Path);
+CStringW AddSlash(LPCWSTR Path);
+CStringW RemoveSlash(LPCWSTR Path);
+CStringW GetFileExt(LPCWSTR Path);
+CStringW RenameFileExt(LPCWSTR Path, LPCWSTR Ext);
+CStringW RemoveFileExt(LPCWSTR Path);
+BOOL     GetTemporaryFilePath(CStringW strExtension, CStringW& strFileName);
+CStringW CompactPath(LPCWSTR Path, UINT cchMax);
 
-CString GetModulePath(HMODULE hModule);
-CString GetProgramPath();
-CString GetProgramDir();
+// Get path of specified module
+CStringW GetModulePath(HMODULE hModule);
+// Get path of the executable file of the current process
+CStringW GetProgramPath();
+// Get programm directory with slash
+CStringW GetProgramDir();

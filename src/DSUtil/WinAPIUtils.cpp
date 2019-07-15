@@ -1,5 +1,5 @@
 /*
- * (C) 2011-2014 see Authors.txt
+ * (C) 2011-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,240 +20,8 @@
 
 #include "stdafx.h"
 #include <Shlobj.h>
-#include <dx/d3dx9.h>
 #include "WinAPIUtils.h"
-#include "SysVersion.h"
-
-BOOL IsCompositionEnabled()
-{
-	// check Composition is Enabled
-	BOOL bCompositionEnabled = false;
-
-	if (IsWinVistaOrLater()) {
-		HRESULT (__stdcall * pDwmIsCompositionEnabled)(__out BOOL* pfEnabled);
-		pDwmIsCompositionEnabled = NULL;
-		HMODULE hDWMAPI = LoadLibrary(L"dwmapi.dll");
-		if (hDWMAPI) {
-			(FARPROC &)pDwmIsCompositionEnabled = GetProcAddress(hDWMAPI, "DwmIsCompositionEnabled");
-			if (pDwmIsCompositionEnabled) {
-				pDwmIsCompositionEnabled(&bCompositionEnabled);
-			}
-			FreeLibrary(hDWMAPI);
-		}
-	}
-
-	return bCompositionEnabled;
-}
-
-bool SetPrivilege(LPCTSTR privilege, bool bEnable)
-{
-	HANDLE hToken;
-	TOKEN_PRIVILEGES tkp;
-
-	SetThreadExecutionState (ES_CONTINUOUS);
-
-	// Get a token for this process.
-	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
-		return false;
-	}
-
-	// Get the LUID for the privilege.
-	LookupPrivilegeValue(NULL, privilege, &tkp.Privileges[0].Luid);
-
-	tkp.PrivilegeCount = 1;  // one privilege to set
-	tkp.Privileges[0].Attributes = bEnable ? SE_PRIVILEGE_ENABLED : 0;
-
-	// Set the privilege for this process.
-	AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, (PTOKEN_PRIVILEGES)NULL, 0);
-
-	return (GetLastError() == ERROR_SUCCESS);
-}
-
-CString GetHiveName(HKEY hive)
-{
-	switch ((ULONG_PTR)hive) {
-		case (ULONG_PTR)HKEY_CLASSES_ROOT:
-			return _T("HKEY_CLASSES_ROOT");
-		case (ULONG_PTR)HKEY_CURRENT_USER:
-			return _T("HKEY_CURRENT_USER");
-		case (ULONG_PTR)HKEY_LOCAL_MACHINE:
-			return _T("HKEY_LOCAL_MACHINE");
-		case (ULONG_PTR)HKEY_USERS:
-			return _T("HKEY_USERS");
-		case (ULONG_PTR)HKEY_PERFORMANCE_DATA:
-			return _T("HKEY_PERFORMANCE_DATA");
-		case (ULONG_PTR)HKEY_CURRENT_CONFIG:
-			return _T("HKEY_CURRENT_CONFIG");
-		case (ULONG_PTR)HKEY_DYN_DATA:
-			return _T("HKEY_DYN_DATA");
-		case (ULONG_PTR)HKEY_PERFORMANCE_TEXT:
-			return _T("HKEY_PERFORMANCE_TEXT");
-		case (ULONG_PTR)HKEY_PERFORMANCE_NLSTEXT:
-			return _T("HKEY_PERFORMANCE_NLSTEXT");
-		default:
-			return _T("");
-	}
-}
-
-bool ExportRegistryKey(CStdioFile& file, HKEY hKeyRoot, CString keyName)
-{
-	HKEY hKey = NULL;
-	if (RegOpenKeyEx(hKeyRoot, keyName, 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
-		return false;
-	}
-
-	DWORD subKeysCount = 0, maxSubKeyLen = 0;
-	DWORD valuesCount = 0, maxValueNameLen = 0, maxValueDataLen = 0;
-	if (RegQueryInfoKey(hKey, NULL, NULL, NULL, &subKeysCount, &maxSubKeyLen, NULL, &valuesCount, &maxValueNameLen, &maxValueDataLen, NULL, NULL) != ERROR_SUCCESS) {
-		return false;
-	}
-	maxSubKeyLen += 1;
-	maxValueNameLen += 1;
-
-	CString buffer;
-
-	buffer.Format(_T("[%s\\%s]\n"), GetHiveName(hKeyRoot), keyName);
-	file.WriteString(buffer);
-
-	CString valueName;
-	DWORD valueNameLen, valueDataLen, type;
-	BYTE* data = DNew BYTE[maxValueDataLen];
-
-	for (DWORD indexValue=0; indexValue < valuesCount; indexValue++) {
-		valueNameLen = maxValueNameLen;
-		valueDataLen = maxValueDataLen;
-
-		if (RegEnumValue(hKey, indexValue, valueName.GetBuffer(maxValueNameLen), &valueNameLen, NULL, &type, data, &valueDataLen) != ERROR_SUCCESS) {
-			return false;
-		}
-
-		switch (type) {
-			case REG_SZ:
-			{
-				CString str((TCHAR*)data);
-				str.Replace(_T("\\"), _T("\\\\"));
-				str.Replace(_T("\""), _T("\\\""));
-				buffer.Format(_T("\"%s\"=\"%s\"\n"), valueName, str);
-				file.WriteString(buffer);
-			}
-			break;
-			case REG_BINARY:
-				buffer.Format(_T("\"%s\"=hex:%02x"), valueName, data[0]);
-				file.WriteString(buffer);
-				for (DWORD i=1; i < valueDataLen; i++) {
-					buffer.Format(_T(",%02x"), data[i]);
-					file.WriteString(buffer);
-				}
-				file.WriteString(_T("\n"));
-				break;
-			case REG_DWORD:
-				buffer.Format(_T("\"%s\"=dword:%08x\n"), valueName, *((DWORD*)data));
-				file.WriteString(buffer);
-				break;
-			default:
-			{
-				CString msg;
-				msg.Format(_T("The value \"%s\\%s\\%s\" has an unsupported type and has been ignored.\nPlease report this error to the developers."),
-						   GetHiveName(hKeyRoot), keyName, valueName);
-				AfxMessageBox(msg, MB_ICONERROR | MB_OK);
-			}
-			delete[] data;
-			return false;
-		}
-	}
-
-	delete[] data;
-
-	file.WriteString(_T("\n"));
-
-	CString subKeyName;
-	DWORD subKeyLen;
-
-	for (DWORD indexSubKey=0; indexSubKey < subKeysCount; indexSubKey++) {
-		subKeyLen = maxSubKeyLen;
-
-		if (RegEnumKeyEx(hKey, indexSubKey, subKeyName.GetBuffer(maxSubKeyLen), &subKeyLen, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) {
-			return false;
-		}
-
-		buffer.Format(_T("%s\\%s"), keyName, subKeyName);
-
-		if (!ExportRegistryKey(file, hKeyRoot, buffer)) {
-			return false;
-		}
-	}
-
-	RegCloseKey(hKey);
-
-	return true;
-}
-
-UINT GetAdapter(IDirect3D9* pD3D, HWND hWnd)
-{
-	if (hWnd == NULL || pD3D == NULL) {
-		return D3DADAPTER_DEFAULT;
-	}
-
-	HMONITOR hMonitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
-	if (hMonitor == NULL) {
-		return D3DADAPTER_DEFAULT;
-	}
-
-	for (UINT adp = 0, num_adp = pD3D->GetAdapterCount(); adp < num_adp; ++adp) {
-		HMONITOR hAdpMon = pD3D->GetAdapterMonitor(adp);
-		if (hAdpMon == hMonitor) {
-			return adp;
-		}
-	}
-
-	return D3DADAPTER_DEFAULT;
-}
-
-int CALLBACK EnumFontFamExProc(ENUMLOGFONTEX* /*lpelfe*/, NEWTEXTMETRICEX* /*lpntme*/, int /*FontType*/, LPARAM lParam)
-{
-	LPARAM* l = (LPARAM*)lParam;
-	*l = TRUE;
-	return TRUE;
-}
-
-bool IsFontInstalled(LPCTSTR lpszFont)
-{
-	// Get the screen DC
-	CDC dc;
-	if (!dc.CreateCompatibleDC(NULL)) {
-		return false;
-	}
-
-	LOGFONT lf = {0};
-	// Any character set will do
-	lf.lfCharSet = DEFAULT_CHARSET;
-	// Set the facename to check for
-	_tcscpy_s(lf.lfFaceName, lpszFont);
-	LPARAM lParam = 0;
-	// Enumerate fonts
-	EnumFontFamiliesEx(dc.GetSafeHdc(), &lf, (FONTENUMPROC)EnumFontFamExProc, (LPARAM)&lParam, 0);
-
-	return lParam ? true : false;
-}
-
-bool ExploreToFile(CString path)
-{
-	bool success = false;
-	HRESULT res = CoInitialize(NULL);
-
-	if (res == S_OK || res == S_FALSE) {
-		PIDLIST_ABSOLUTE pidl;
-
-		if (SHParseDisplayName(path, NULL, &pidl, 0, NULL) == S_OK) {
-			success = SUCCEEDED(SHOpenFolderAndSelectItems(pidl, 0, NULL, 0));
-			CoTaskMemFree(pidl);
-		}
-
-		CoUninitialize();
-	}
-
-	return success;
-}
+#include "Log.h"
 
 // retrieves the monitor EDID info
 // thanks to JanWillem32 for this code
@@ -294,26 +62,26 @@ bool ReadDisplay(CString szDevice, CString* MonitorName, UINT16* MonitorHorRes, 
 	DisplayDevice.cb = sizeof(DISPLAY_DEVICEW);
 
 	DWORD dwDevNum = 0;
-	while (EnumDisplayDevices(NULL, dwDevNum++, &DisplayDevice, 0)) {
+	while (EnumDisplayDevicesW(nullptr, dwDevNum++, &DisplayDevice, 0)) {
 
 		if ((DisplayDevice.StateFlags & DISPLAY_DEVICE_ACTIVE)
 			&& !(DisplayDevice.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER)
 			&& !_wcsicmp(DisplayDevice.DeviceName, szDevice)) {
 
 			DWORD dwMonNum = 0;
-			while (EnumDisplayDevices(szDevice, dwMonNum++, &DisplayDevice, 0)) {
+			while (EnumDisplayDevicesW(szDevice, dwMonNum++, &DisplayDevice, 0)) {
 				if (DisplayDevice.StateFlags & DISPLAY_DEVICE_ACTIVE) {
 					size_t len = wcslen(DisplayDevice.DeviceID);
 					wchar_t* szDeviceIDshort = DisplayDevice.DeviceID + len - 43;// fixed at 43 characters
 
 					HKEY hKey0;
 					static wchar_t const gk_szRegCcsEnumDisplay[] = L"SYSTEM\\CurrentControlSet\\Enum\\DISPLAY\\";
-					LSTATUS ls = RegOpenKeyEx(HKEY_LOCAL_MACHINE, gk_szRegCcsEnumDisplay, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey0);
+					LSTATUS ls = RegOpenKeyExW(HKEY_LOCAL_MACHINE, gk_szRegCcsEnumDisplay, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey0);
 					if (ls == ERROR_SUCCESS) {
 						DWORD i = 0;
 						for (;;) {// iterate over the child keys
 							DWORD cbName = _countof(DisplayDevice.DeviceKey);
-							ls = RegEnumKeyEx(hKey0, i, DisplayDevice.DeviceKey, &cbName, NULL, NULL, NULL, NULL);
+							ls = RegEnumKeyExW(hKey0, i, DisplayDevice.DeviceKey, &cbName, nullptr, nullptr, nullptr, nullptr);
 							if (ls == ERROR_NO_MORE_ITEMS) {
 								break;
 							}
@@ -324,13 +92,13 @@ bool ReadDisplay(CString szDevice, CString* MonitorName, UINT16* MonitorHorRes, 
 								memcpy(DeviceName + _countof(gk_szRegCcsEnumDisplay) - 1, DisplayDevice.DeviceKey, (cbName << 1) + 2);
 								wchar_t* pEnd0 = DeviceName + _countof(gk_szRegCcsEnumDisplay) - 1 + cbName;
 								HKEY hKey1;
-								ls = RegOpenKeyEx(HKEY_LOCAL_MACHINE, DeviceName, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey1);
+								ls = RegOpenKeyExW(HKEY_LOCAL_MACHINE, DeviceName, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey1);
 
 								if (ls == ERROR_SUCCESS) {
 									DWORD j = 0;
 									for (;;) {// iterate over the grandchild keys
 										cbName = _countof(DisplayDevice.DeviceKey);
-										ls = RegEnumKeyEx(hKey1, j, DisplayDevice.DeviceKey, &cbName, NULL, NULL, NULL, NULL);
+										ls = RegEnumKeyExW(hKey1, j, DisplayDevice.DeviceKey, &cbName, nullptr, nullptr, nullptr, nullptr);
 										if (ls == ERROR_NO_MORE_ITEMS) {
 											break;
 										}
@@ -341,12 +109,12 @@ bool ReadDisplay(CString szDevice, CString* MonitorName, UINT16* MonitorHorRes, 
 											wchar_t* pEnd1 = pEnd0 + 1 + cbName;
 
 											HKEY hKey2;
-											ls = RegOpenKeyEx(HKEY_LOCAL_MACHINE, DeviceName, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey2);
+											ls = RegOpenKeyExW(HKEY_LOCAL_MACHINE, DeviceName, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey2);
 											if (ls == ERROR_SUCCESS) {
 
 												static wchar_t const szTDriverKeyN[] = L"Driver";
 												cbName = sizeof(DisplayDevice.DeviceKey);// re-use it here
-												ls = RegQueryValueEx(hKey2, szTDriverKeyN, NULL, NULL, (LPBYTE)DisplayDevice.DeviceKey, &cbName);
+												ls = RegQueryValueExW(hKey2, szTDriverKeyN, nullptr, nullptr, (LPBYTE)DisplayDevice.DeviceKey, &cbName);
 												if (ls == ERROR_SUCCESS) {
 													if (!wcscmp(szDeviceIDshort, DisplayDevice.DeviceKey)) {
 														static wchar_t const szTDevParKeyN[] = L"\\Device Parameters";
@@ -355,16 +123,16 @@ bool ReadDisplay(CString szDevice, CString* MonitorName, UINT16* MonitorHorRes, 
 														cbName = sizeof(DisplayDevice.DeviceKey);// 256, perfectly suited to receive a copy of the 128 or 256 bytes of EDID data
 
 														HKEY hKey3;
-														ls = RegOpenKeyEx(HKEY_LOCAL_MACHINE, DeviceName, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey3);
+														ls = RegOpenKeyExW(HKEY_LOCAL_MACHINE, DeviceName, 0, KEY_ENUMERATE_SUB_KEYS | KEY_READ, &hKey3);
 														if (ls == ERROR_SUCCESS) {
 
-															ls = RegQueryValueEx(hKey3, szkEDIDKeyN, NULL, NULL, (LPBYTE)DisplayDevice.DeviceKey, &cbName);
+															ls = RegQueryValueExW(hKey3, szkEDIDKeyN, nullptr, nullptr, (LPBYTE)DisplayDevice.DeviceKey, &cbName);
 															if ((ls == ERROR_SUCCESS) && (cbName > 127)) {
 																UINT8* EDIDdata = (UINT8*)DisplayDevice.DeviceKey;
 																// memo: bytes 25 to 34 contain the default chromaticity coordinates
 
 																// pixel clock in 10 kHz units (0.01–655.35 MHz)
-																UINT16 u16PixelClock = (UINT16)(EDIDdata + 54);
+																UINT16 u16PixelClock = *(UINT16*)(EDIDdata + 54);
 																if (u16PixelClock) {// if the descriptor for pixel clock is 0, the descriptor block is invalid
 																	// horizontal active pixels
 																	nMonitorHorRes = (UINT16(EDIDdata[58] & 0xF0) << 4) | EDIDdata[56];
@@ -431,88 +199,20 @@ bool ReadDisplay(CString szDevice, CString* MonitorName, UINT16* MonitorHorRes, 
 			}
 			break;
 		}
-    }
+	}
 
 	return false;
 }
 
-BOOL CFileGetStatus(LPCTSTR lpszFileName, CFileStatus& status)
+bool CFileGetStatus(LPCWSTR lpszFileName, CFileStatus& status)
 {
 	try {
-		return CFile::GetStatus(lpszFileName, status);
+		return !!CFile::GetStatus(lpszFileName, status);
 	} catch (CException* e) {
 		// MFCBUG: E_INVALIDARG / "Parameter is incorrect" is thrown for certain cds (vs2003)
 		// http://groups.google.co.uk/groups?hl=en&lr=&ie=UTF-8&threadm=OZuXYRzWDHA.536%40TK2MSFTNGP10.phx.gbl&rnum=1&prev=/groups%3Fhl%3Den%26lr%3D%26ie%3DISO-8859-1
-		TRACE(_T("CFile::GetStatus has thrown an exception\n"));
+		DLog(L"CFile::GetStatus() has thrown an exception");
 		e->Delete();
 		return false;
 	}
-}
-
-BOOL IsUserAdmin()
-/*++
-Routine Description: This routine returns TRUE if the caller's
-process is a member of the Administrators local group. Caller is NOT
-expected to be impersonating anyone and is expected to be able to
-open its own process and process token.
-Arguments: None.
-Return Value:
-	TRUE - Caller has Administrators local group.
-	FALSE - Caller does not have Administrators local group. --
-
-from http://msdn.microsoft.com/en-us/library/windows/desktop/aa376389(v=vs.85).aspx
-*/
-{
-	BOOL ret;
-	SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
-	PSID AdministratorsGroup;
-	ret = AllocateAndInitializeSid(
-		  &NtAuthority,
-		  2,
-		  SECURITY_BUILTIN_DOMAIN_RID,
-		  DOMAIN_ALIAS_RID_ADMINS,
-		  0, 0, 0, 0, 0, 0,
-		  &AdministratorsGroup);
-	if (ret) {
-		if (!CheckTokenMembership(NULL, AdministratorsGroup, &ret)) {
-			ret = FALSE;
-		}
-		FreeSid(AdministratorsGroup);
-	}
-
-	return ret;
-}
-
-// from http://msdn.microsoft.com/ru-RU/library/windows/desktop/ms680582(v=vs.85).aspx
-CString GetLastErrorMsg(LPTSTR lpszFunction, DWORD dw/* = GetLastError()*/)
-{
-	LPVOID lpMsgBuf;
-	LPVOID lpDisplayBuf;
-
-	FormatMessage(
-		FORMAT_MESSAGE_ALLOCATE_BUFFER |
-		FORMAT_MESSAGE_FROM_SYSTEM |
-		FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL,
-		dw,
-		MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
-		//MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // default system language
-		(LPTSTR)&lpMsgBuf,
-		0, NULL);
-
-	// Format the error message
-
-	lpDisplayBuf = (LPVOID)LocalAlloc(LMEM_ZEROINIT,
-		(lstrlen((LPCTSTR)lpMsgBuf) + lstrlen((LPCTSTR)lpszFunction) + 40) * sizeof(TCHAR));
-	StringCchPrintf((LPTSTR)lpDisplayBuf,
-		LocalSize(lpDisplayBuf) / sizeof(TCHAR),
-		L"Function '%s' failed with error %d: %s",
-		lpszFunction, dw, lpMsgBuf);
-
-	CString ret = (LPCTSTR)lpDisplayBuf;
-
-	LocalFree(lpMsgBuf);
-	LocalFree(lpDisplayBuf);
-
-	return ret;
 }

@@ -1,6 +1,5 @@
 /*
- * (C) 2003-2006 Gabest
- * (C) 2006-2015 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -23,13 +22,13 @@
 #include "XySubPicProvider.h"
 
 CXySubPicProvider::CXySubPicProvider(ISubRenderProvider* provider)
-	: CUnknown(NAME("CXySubPicProvider"), NULL)
+	: CUnknown(L"CXySubPicProvider", NULL)
 	, m_pSubRenderProvider(provider)
 	, m_pSubFrame(NULL)
 	, m_rtStart(0)
 	, m_rtStop(0)
 {
-	m_hEvtDelivered = CreateEvent(NULL, false, false, NULL);
+	m_hEvtDelivered = CreateEventW(NULL, false, false, NULL);
 }
 
 CXySubPicProvider::~CXySubPicProvider()

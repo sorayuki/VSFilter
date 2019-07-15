@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -35,6 +35,7 @@
 #include <crtdefs.h>
 
 #include <BaseClasses/streams.h>
+#include <algorithm>
+#include <cmath>
 
 #include "../DSUtil/DSUtil.h"
-#include <algorithm>

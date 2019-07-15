@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,8 +21,8 @@
 
 #pragma once
 
-#include <atlcoll.h>
-#include <atlsimpcoll.h>
+#include <vector>
+#include <map>
 
 // IDSMPropertyBag
 
@@ -89,7 +89,7 @@ class CDSMResource
 public:
 	DWORD_PTR tag;
 	CStringW name, desc, mime;
-	CAtlArray<BYTE> data;
+	std::vector<BYTE> data;
 	CDSMResource();
 	CDSMResource(const CDSMResource& r);
 	CDSMResource(LPCWSTR name, LPCWSTR desc, LPCWSTR mime, BYTE* pData, int len, DWORD_PTR tag = 0);
@@ -98,23 +98,23 @@ public:
 
 	// global access to all resources
 	static CCritSec m_csResources;
-	static CAtlMap<uintptr_t, CDSMResource*> m_resources;
+	static std::map<uintptr_t, CDSMResource*> m_resources;
 };
 
 class IDSMResourceBagImpl : public IDSMResourceBag
 {
 protected:
-	CAtlArray<CDSMResource> m_resources;
+	std::vector<CDSMResource> m_resources;
 
 public:
 	IDSMResourceBagImpl();
 
-	void operator += (const CDSMResource& r) { m_resources.Add(r); }
+	void operator += (const CDSMResource& r) { m_resources.emplace_back(r); }
 
 	// IDSMResourceBag
 
 	STDMETHODIMP_(DWORD) ResGetCount();
-	STDMETHODIMP ResGet(DWORD iIndex, BSTR* ppName, BSTR* ppDesc, BSTR* ppMime, BYTE** ppData, DWORD* pDataLen, DWORD_PTR* pTag = NULL);
+	STDMETHODIMP ResGet(DWORD iIndex, BSTR* ppName, BSTR* ppDesc, BSTR* ppMime, BYTE** ppData, DWORD* pDataLen, DWORD_PTR* pTag = nullptr);
 	STDMETHODIMP ResSet(DWORD iIndex, LPCWSTR pName, LPCWSTR pDesc, LPCWSTR pMime, BYTE* pData, DWORD len, DWORD_PTR tag = 0);
 	STDMETHODIMP ResAppend(LPCWSTR pName, LPCWSTR pDesc, LPCWSTR pMime, BYTE* pData, DWORD len, DWORD_PTR tag = 0);
 	STDMETHODIMP ResRemoveAt(DWORD iIndex);
@@ -146,30 +146,30 @@ public:
 	CStringW name;
 	CDSMChapter();
 	CDSMChapter(REFERENCE_TIME rt, LPCWSTR name);
-	CDSMChapter& operator = (const CDSMChapter& c);
+	//CDSMChapter& operator = (const CDSMChapter& c);
 	static int Compare(const void* a, const void* b);
 };
 
 class IDSMChapterBagImpl : public IDSMChapterBag
 {
 protected:
-	CAtlArray<CDSMChapter> m_chapters;
+	std::vector<CDSMChapter> m_chapters;
 	bool m_fSorted;
 
 public:
 	IDSMChapterBagImpl();
 
-	void operator += (const CDSMChapter& c) { m_chapters.Add(c); m_fSorted = false; }
+	void operator += (const CDSMChapter& c) { m_chapters.emplace_back(c); m_fSorted = false; }
 
 	// IDSMChapterBag
 
 	STDMETHODIMP_(DWORD) ChapGetCount();
-	STDMETHODIMP ChapGet(DWORD iIndex, REFERENCE_TIME* prt, BSTR* ppName = NULL);
+	STDMETHODIMP ChapGet(DWORD iIndex, REFERENCE_TIME* prt, BSTR* ppName = nullptr);
 	STDMETHODIMP ChapSet(DWORD iIndex, REFERENCE_TIME rt, LPCWSTR pName);
 	STDMETHODIMP ChapAppend(REFERENCE_TIME rt, LPCWSTR pName);
 	STDMETHODIMP ChapRemoveAt(DWORD iIndex);
 	STDMETHODIMP ChapRemoveAll();
-	STDMETHODIMP_(long) ChapLookup(REFERENCE_TIME* prt, BSTR* ppName = NULL);
+	STDMETHODIMP_(long) ChapLookup(REFERENCE_TIME* prt, BSTR* ppName = nullptr);
 	STDMETHODIMP ChapSort();
 };
 
@@ -183,9 +183,9 @@ public:
 };
 
 template<class T>
-int range_bsearch(const CAtlArray<T>& array, REFERENCE_TIME rt)
+int range_bsearch(const std::vector<T>& array, REFERENCE_TIME rt)
 {
-	int i = 0, j = array.GetCount() - 1, ret = -1;
+	int i = 0, j = array.size() - 1, ret = -1;
 	if (j >= 0 && rt >= array[j].rt) {
 		return j;
 	}

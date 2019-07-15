@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -25,7 +25,6 @@
 #include <moreuuids.h>
 #include "DirectVobSubFilter.h"
 #include "Scale2x.h"
-#include "../MPCVideoDec/memcpy_sse.h"
 
 extern int c2y_yb[256];
 extern int c2y_yg[256];
@@ -64,7 +63,7 @@ void BltLineRGB32(DWORD* d, BYTE* sub, int w, const GUID& subtype)
 			}
 		}
 	}
-    else if (subtype == MEDIASUBTYPE_YUY2) {
+	else if (subtype == MEDIASUBTYPE_YUY2) {
 		WORD* ds = (WORD*)d;
 		WORD* dstend = ds + w;
 
@@ -152,16 +151,16 @@ HRESULT CDirectVobSubFilter::Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, in
 		if (fScale2x) {
 			Scale2x(subtype,
 					pSub + dpLeft, pitchSub, pIn, pitchIn,
-					in.cx, (min(j, hSub) - i) >> 1);
+					in.cx, (std::min(j, hSub) - i) >> 1);
 
-			for (ptrdiff_t k = min(j, hSub); i < k; i++, pIn += pitchIn, pSub += pitchSub) {
+			for (int k = std::min(j, hSub); i < k; i++, pIn += pitchIn, pSub += pitchSub) {
 				memsetd(pSub, black, dpLeft);
 				memsetd(pSub + dpLeft+dpMid, black, dpRight);
 			}
 		} else {
-			for (ptrdiff_t k = min(j, hSub); i < k; i++, pIn += pitchIn, pSub += pitchSub) {
+			for (int k = std::min(j, hSub); i < k; i++, pIn += pitchIn, pSub += pitchSub) {
 				memsetd(pSub, black, dpLeft);
-				memcpy_sse(pSub + dpLeft, pIn, dpMid);
+				memcpy(pSub + dpLeft, pIn, dpMid);
 				memsetd(pSub + dpLeft+dpMid, black, dpRight);
 			}
 		}
@@ -193,22 +192,22 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 
 	if (m_bOSD) {
 		CString input = GetGUIDString(m_pInput->CurrentMediaType().subtype);
-		if (!input.Left(13).CompareNoCase(_T("MEDIASUBTYPE_"))) {
+		if (!input.Left(13).CompareNoCase(L"MEDIASUBTYPE_")) {
 			input = input.Mid(13);
 		}
 		CString output = GetGUIDString(m_pOutput->CurrentMediaType().subtype);
-		if (!output.Left(13).CompareNoCase(_T("MEDIASUBTYPE_"))) {
+		if (!output.Left(13).CompareNoCase(L"MEDIASUBTYPE_")) {
 			output = output.Mid(13);
 		}
 
-		tmp.Format(_T("in: %dx%d %s\nout: %dx%d %s\n"),
-				   m_w, m_h,
+		tmp.Format(L"in: %dx%d %s\nout: %dx%d %s\n",
+				   m_win, m_hout,
 				   input,
 				   bihOut.biWidth, bihOut.biHeight,
 				   output);
 		msg += tmp;
 
-		tmp.Format(_T("real fps: %.3f, current fps: %.3f\nmedia time: %d, subtitle time: %d [ms]\nframe number: %d (calculated)\nrate: %.4f\n"),
+		tmp.Format(L"real fps: %.3f, current fps: %.3f\nmedia time: %d, subtitle time: %d [ms]\nframe number: %d (calculated)\nrate: %.4f\n",
 				   m_fps, m_bMediaFPSEnabled?m_MediaFPS:fabs(m_fps),
 				   (int)m_tPrev.Millisecs(), (int)(CalcCurrentTime()/10000),
 				   (int)(m_tPrev.m_time * m_fps / 10000000),
@@ -221,12 +220,12 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 			int nSubPics = -1;
 			REFERENCE_TIME rtNow = -1, rtStart = -1, rtStop = -1;
 			m_pSubPicQueue->GetStats(nSubPics, rtNow, rtStart, rtStop);
-			tmp.Format(_T("queue stats: %I64d - %I64d [ms]\n"), rtStart/10000, rtStop/10000);
+			tmp.Format(L"queue stats: %I64d - %I64d [ms]\n", rtStart/10000, rtStop/10000);
 			msg += tmp;
 
 			for (int i = 0; i < nSubPics; i++) {
 				m_pSubPicQueue->GetStats(i, rtStart, rtStop);
-				tmp.Format(_T("%d: %I64d - %I64d [ms]\n"), i, rtStart/10000, rtStop/10000);
+				tmp.Format(L"%d: %I64d - %I64d [ms]\n", i, rtStart/10000, rtStop/10000);
 				msg += tmp;
 			}
 
@@ -245,15 +244,15 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 	SetMapMode(m_hdc, MM_TEXT);
 
 	BITMAP bm;
-	GetObject(m_hbm, sizeof(BITMAP), &bm);
+	GetObjectW(m_hbm, sizeof(BITMAP), &bm);
 
 	CRect r(0, 0, bm.bmWidth, bm.bmHeight);
-	DrawText(m_hdc, msg, _tcslen(msg), &r, DT_CALCRECT|DT_EXTERNALLEADING|DT_NOPREFIX|DT_WORDBREAK);
+	DrawTextW(m_hdc, msg, wcslen(msg), &r, DT_CALCRECT|DT_EXTERNALLEADING|DT_NOPREFIX|DT_WORDBREAK);
 
 	r += CPoint(10, 10);
 	r &= CRect(0, 0, bm.bmWidth, bm.bmHeight);
 
-	DrawText(m_hdc, msg, _tcslen(msg), &r, DT_LEFT|DT_TOP|DT_NOPREFIX|DT_WORDBREAK);
+	DrawTextW(m_hdc, msg, wcslen(msg), &r, DT_LEFT|DT_TOP|DT_NOPREFIX|DT_WORDBREAK);
 
 	BYTE* pIn = (BYTE*)bm.bmBits;
 	int pitchIn = bm.bmWidthBytes;
@@ -277,7 +276,7 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 	pIn += pitchIn * r.top;
 	pOut += pitchOut * r.top;
 
-	for (ptrdiff_t w = min(r.right, m_w), h = r.Height(); h--; pIn += pitchIn, pOut += pitchOut) {
+	for (int w = std::min((int)r.right, m_win), h = r.Height(); h--; pIn += pitchIn, pOut += pitchOut) {
 		BltLineRGB32((DWORD*)pOut, pIn, w, subtype);
 		memsetd(pIn, 0xff000000, r.right*4);
 	}

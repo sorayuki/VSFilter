@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2015 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,24 +21,20 @@
 
 #pragma once
 
+#include <list>
+
 class CFontInstaller
 {
-	HANDLE (WINAPI *pAddFontMemResourceEx)(PVOID,DWORD,PVOID,DWORD*);
-	BOOL (WINAPI *pRemoveFontMemResourceEx)(HANDLE);
-	int (WINAPI *pAddFontResourceEx)(LPCTSTR,DWORD,PVOID);
-	BOOL (WINAPI *pRemoveFontResourceEx)(LPCTSTR,DWORD,PVOID);
-	BOOL (WINAPI *pMoveFileEx)(LPCTSTR, LPCTSTR,DWORD);
-
-	CAtlList<HANDLE> m_fonts;
-	CAtlList<CString> m_files;
-	CAtlList<CString> m_tempfiles;
+	std::list<HANDLE> m_fonts;
+	std::list<CString> m_files;
+	std::list<CString> m_tempfiles;
 
 public:
 	CFontInstaller();
 	virtual ~CFontInstaller();
 
 	bool InstallFontMemory(const void* pData, UINT len);
-	bool InstallFontFile(LPCTSTR filename);
+	bool InstallFontFile(LPCWSTR filename);
 	bool InstallFontTempFile(const void* pData, UINT len);
 
 	void UninstallFonts();

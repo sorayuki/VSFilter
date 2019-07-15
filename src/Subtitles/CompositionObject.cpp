@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -20,6 +20,7 @@
 
 #include "stdafx.h"
 #include "CompositionObject.h"
+#include "ColorConvert.h"
 #include "../DSUtil/GolombBuffer.h"
 #include <d3d9types.h>
 
@@ -33,18 +34,14 @@ CompositionObject::~CompositionObject()
 	SAFE_DELETE_ARRAY(m_pRLEData);
 }
 
-void CompositionObject::SetPalette(int nNbEntry, HDMV_PALETTE* pPalette, bool bIsHD, bool bIsRGB)
+void CompositionObject::SetPalette(int nNbEntry, HDMV_PALETTE* pPalette, bool bRec709, ColorConvert::convertType type/* = ColorConvert::convertType::DEFAULT*/, bool bIsRGB/* = false*/)
 {
 	m_nColorNumber = nNbEntry;
 	for (int i = 0; i < nNbEntry; i++) {
 		if (bIsRGB) {
 			m_Colors[pPalette[i].entry_id] = D3DCOLOR_ARGB(pPalette[i].T, pPalette[i].Y, pPalette[i].Cr, pPalette[i].Cb);
 		} else {
-			if (bIsHD) {
-				m_Colors[pPalette[i].entry_id] = YCrCbToRGB_Rec709 (pPalette[i].T, pPalette[i].Y, pPalette[i].Cr, pPalette[i].Cb);
-			} else {
-				m_Colors[pPalette[i].entry_id] = YCrCbToRGB_Rec601 (pPalette[i].T, pPalette[i].Y, pPalette[i].Cr, pPalette[i].Cb);
-			}
+			m_Colors[pPalette[i].entry_id] = ColorConvert::YCrCbToRGB(pPalette[i].T, pPalette[i].Y, pPalette[i].Cr, pPalette[i].Cb, bRec709, type);
 		}
 	}
 }
@@ -55,9 +52,9 @@ void CompositionObject::SetRLEData(const BYTE* pBuffer, int nSize, int nTotalSiz
 
 	m_pRLEData		= DNew BYTE[nTotalSize];
 	m_nRLEDataSize	= nTotalSize;
-	m_nRLEPos		= min(nSize, nTotalSize);
+	m_nRLEPos		= std::min(nSize, nTotalSize);
 
-	memcpy(m_pRLEData, pBuffer, min(nSize, nTotalSize));
+	memcpy(m_pRLEData, pBuffer, std::min(nSize, nTotalSize));
 }
 
 void CompositionObject::AppendRLEData(const BYTE* pBuffer, int nSize)
@@ -136,9 +133,9 @@ void CompositionObject::DvbRenderField(SubPicDesc& spd, CGolombBuffer& gb, SHORT
 	//return;
 	SHORT	nX		= nXStart;
 	SHORT	nY		= nYStart;
-	int		nEnd	= gb.GetPos()+nLength;
+	int		nEnd	= std::min(gb.GetPos()+nLength, gb.GetSize());
 	while (gb.GetPos() < nEnd) {
-		BYTE	bType	= gb.ReadByte();
+		BYTE bType = gb.ReadByte();
 		switch (bType) {
 			case 0x10 :
 				Dvb2PixelsCodeString(spd, gb, nX, nY);
@@ -163,7 +160,7 @@ void CompositionObject::DvbRenderField(SubPicDesc& spd, CGolombBuffer& gb, SHORT
 				nY += 2;
 				break;
 			default :
-				ASSERT(FALSE);
+				DLog(L"DvbRenderField(): Unknown DVBSUB segment 0x%02x, offset %d", bType, gb.GetPos()-1);
 				break;
 		}
 	}
@@ -346,11 +343,11 @@ void CompositionObject::RenderXSUB(SubPicDesc& spd)
 		return;
 	}
 
-	CGolombBuffer	gb(m_pRLEData, m_nRLEDataSize);
-	BYTE			nPaletteIndex = 0;
-	SHORT			nCount;
-	SHORT			nX = m_horizontal_position;
-	SHORT			nY = m_vertical_position;
+	CGolombBuffer gb(m_pRLEData, m_nRLEDataSize);
+	BYTE nPaletteIndex = 0;
+	int  nCount;
+	int  nX = m_horizontal_position;
+	int  nY = m_vertical_position;
 
 	for (SHORT y = 0; y < m_height; y++) {
 		if (gb.IsEOF()) {
@@ -358,13 +355,13 @@ void CompositionObject::RenderXSUB(SubPicDesc& spd)
 		}
 		if (y == (m_height + 1) / 2) {
 			// interlaced: do odd lines
-			nY	= m_vertical_position + 1;
+			nY = m_vertical_position + 1;
 		}
-		nX	= m_horizontal_position;
+		nX = m_horizontal_position;
 		while (nX < (m_horizontal_position + m_width)) {
 			int log2		= ff_log2_tab[gb.BitRead(8, true)];
 			nCount			= gb.BitRead(14 - 4 * (log2 >> 1));
-			nCount			= min(nCount, m_width - (nX - m_horizontal_position));
+			nCount			= std::min(nCount, m_width - (nX - m_horizontal_position));
 			nPaletteIndex	= gb.BitRead(2);
 			// count 0 - means till end of row
 			if (!nCount) {

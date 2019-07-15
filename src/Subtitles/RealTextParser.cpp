@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -19,7 +19,17 @@
  */
 
 #include "stdafx.h"
+#include <vector>
 #include "RealTextParser.h"
+
+using std::vector;
+using std::list;
+using std::map;
+using std::pair;
+using std::wstring;
+using std::wostream;
+using std::wostringstream;
+using std::endl;
 
 CRealTextParser::CRealTextParser(void):
 	m_bIgnoreFont(false),
@@ -534,7 +544,7 @@ wstring CRealTextParser::RenderTags(const list<Tag>& p_crlTags)
 				bEmpty = false;
 			}
 		} else {
-			//AfxMessageBox(CString(_T("Unknown RealText-tag: ")) + oTag.m_szName.c_str());
+			//AfxMessageBox(CString(L"Unknown RealText-tag: ") + oTag.m_szName.c_str());
 		}
 	}
 

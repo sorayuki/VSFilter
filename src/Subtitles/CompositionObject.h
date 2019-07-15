@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2016 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,6 +21,7 @@
 #pragma once
 
 #include "Rasterizer.h"
+#include "ColorConvert.h"
 
 struct HDMV_PALETTE {
 	BYTE entry_id	= 0;
@@ -69,7 +70,7 @@ public :
 	void				RenderDvb(SubPicDesc& spd, SHORT nX, SHORT nY, SubPicDesc* spdResized);
 	void				RenderXSUB(SubPicDesc& spd);
 
-	void				SetPalette(int nNbEntry, HDMV_PALETTE* pPalette, bool bIsHD, bool bIsRGB = false);
+	void				SetPalette(int nNbEntry, HDMV_PALETTE* pPalette, bool bRec709, ColorConvert::convertType type = ColorConvert::convertType::DEFAULT, bool bIsRGB = false);
 	const bool			HavePalette() { return m_nColorNumber > 0; };
 
 	CompositionObject* Copy() {

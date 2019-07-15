@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -23,15 +23,12 @@
 #include "SubPicAllocatorPresenterImpl.h"
 #include "../filters/renderer/VideoRenderers/RenderersSettings.h"
 #include <Version.h>
-#include <math.h>
 #include "XySubPicQueueImpl.h"
 #include "XySubPicProvider.h"
-#include <d3d9.h>
-#include <evr.h>
 #include <dxva2api.h>
 
 CSubPicAllocatorPresenterImpl::CSubPicAllocatorPresenterImpl(HWND hWnd, HRESULT& hr, CString *_pError)
-	: CUnknown(NAME("CSubPicAllocatorPresenterImpl"), NULL)
+	: CUnknown(L"CSubPicAllocatorPresenterImpl", NULL)
 	, m_hWnd(hWnd)
 	, m_maxSubtitleTextureSize(0, 0)
 	, m_nativeVideoSize(0, 0)
@@ -48,12 +45,11 @@ CSubPicAllocatorPresenterImpl::CSubPicAllocatorPresenterImpl(HWND hWnd, HRESULT&
 	if (!IsWindow(m_hWnd)) {
 		hr = E_INVALIDARG;
 		if (_pError) {
-			*_pError += "Invalid window handle in ISubPicAllocatorPresenterImpl\n";
+			*_pError += L"Invalid window handle in ISubPicAllocatorPresenterImpl\n";
 		}
 		return;
 	}
 	GetWindowRect(m_hWnd, &m_windowRect);
-	SetVideoAngle(Vector());
 	hr = S_OK;
 }
 
@@ -67,10 +63,11 @@ STDMETHODIMP CSubPicAllocatorPresenterImpl::NonDelegatingQueryInterface(REFIID r
 		QI(ISubPicAllocatorPresenter3)
 		QI(ISubRenderOptions)
 		QI(ISubRenderConsumer)
+		QI(ISubRenderConsumer2)
 		__super::NonDelegatingQueryInterface(riid, ppv);
 }
 
-void CSubPicAllocatorPresenterImpl::InitMaxSubtitleTextureSize(int maxWidth, CSize desktopSize)
+void CSubPicAllocatorPresenterImpl::InitMaxSubtitleTextureSize(const int maxWidth, const CSize& desktopSize)
 {
 	switch (maxWidth) {
 		case 0:
@@ -107,36 +104,51 @@ void CSubPicAllocatorPresenterImpl::InitMaxSubtitleTextureSize(int maxWidth, CSi
 	}
 }
 
-void CSubPicAllocatorPresenterImpl::AlphaBltSubPic(const CRect& windowRect, const CRect& videoRect, SubPicDesc* pTarget, int xOffsetInPixels)
+void CSubPicAllocatorPresenterImpl::AlphaBltSubPic(const CRect& windowRect, const CRect& videoRect, int xOffsetInPixels/* = 0*/)
 {
 	if (m_pSubPicProvider) {
 		CComPtr<ISubPic> pSubPic;
 		if (m_pSubPicQueue->LookupSubPic(m_rtNow, !IsRendering(), pSubPic)) {
-			CRect rcSubs(windowRect);
 
-			CRenderersSettings& rs = GetRenderersSettings();
+			CRect rcWindow(windowRect);
+			CRect rcVideo(videoRect);
+
+			const CRenderersSettings& rs = GetRenderersSettings();
+
 			if (rs.iSubpicStereoMode == SUBPIC_STEREO_SIDEBYSIDE) {
-				CRect rcTemp(windowRect);
-				rcTemp.right -= rcTemp.Width() / 2;
-				AlphaBlt(rcTemp, videoRect, pSubPic, pTarget, xOffsetInPixels);
-				rcSubs.left += rcSubs.Width() / 2;
-			} else if (rs.iSubpicStereoMode == SUBPIC_STEREO_TOPANDBOTTOM) {
-				CRect rcTemp(windowRect);
-				rcTemp.bottom -= rcTemp.Height() / 2;
-				AlphaBlt(rcTemp, videoRect, pSubPic, pTarget, xOffsetInPixels);
-				rcSubs.top += rcSubs.Height() / 2;
+				CRect rcTempWindow(windowRect);
+				rcTempWindow.right -= rcTempWindow.Width() / 2;
+				CRect rcTempVideo(videoRect);
+				rcTempVideo.right -= rcTempVideo.Width() / 2;
+
+				AlphaBlt(rcTempWindow, rcTempVideo, pSubPic, NULL, -xOffsetInPixels, FALSE);
+
+				rcWindow.left += rcWindow.Width() / 2;
+				rcVideo.left += rcVideo.Width() / 2;
+
+			} else if (rs.iSubpicStereoMode == SUBPIC_STEREO_TOPANDBOTTOM || rs.iStereo3DTransform == STEREO3D_HalfOverUnder_to_Interlace) {
+				CRect rcTempWindow(windowRect);
+				rcTempWindow.bottom -= rcTempWindow.Height() / 2;
+				CRect rcTempVideo(videoRect);
+				rcTempVideo.bottom -= rcTempVideo.Height() / 2;
+
+				AlphaBlt(rcTempWindow, rcTempVideo, pSubPic, NULL, -xOffsetInPixels, FALSE);
+
+				rcWindow.top += rcWindow.Height() / 2;
+				rcVideo.top += rcVideo.Height() / 2;
+
 			}
 
-			AlphaBlt(rcSubs, videoRect, pSubPic, pTarget, xOffsetInPixels);
+			AlphaBlt(rcWindow, rcVideo, pSubPic, NULL, xOffsetInPixels, rs.iSubpicStereoMode == SUBPIC_STEREO_NONE && rs.iStereo3DTransform != STEREO3D_HalfOverUnder_to_Interlace);
 		}
 	}
 }
 
-void CSubPicAllocatorPresenterImpl::AlphaBlt(const CRect& windowRect, const CRect& videoRect, ISubPic* pSubPic, SubPicDesc* pTarget, int xOffsetInPixels)
+void CSubPicAllocatorPresenterImpl::AlphaBlt(const CRect& windowRect, const CRect& videoRect, ISubPic* pSubPic, SubPicDesc* pTarget, int xOffsetInPixels/* = 0*/, const BOOL bUseSpecialCase/* = TRUE*/)
 {
 	CRect rcSource, rcDest;
-	CRenderersSettings& rs = GetRenderersSettings();
-	if (SUCCEEDED(pSubPic->GetSourceAndDest(windowRect, videoRect, rs.bSubpicPosRelative, rs.SubpicShiftPos, rcSource, rcDest, xOffsetInPixels))) {
+	const CRenderersSettings& rs = GetRenderersSettings();
+	if (SUCCEEDED(pSubPic->GetSourceAndDest(windowRect, videoRect, rs.iSubpicPosRelative, rs.SubpicShiftPos, rcSource, rcDest, xOffsetInPixels, bUseSpecialCase))) {
 		pSubPic->AlphaBlt(rcSource, rcDest, pTarget);
 	}
 }
@@ -161,16 +173,14 @@ STDMETHODIMP_(SIZE) CSubPicAllocatorPresenterImpl::GetVideoSizeAR()
 
 STDMETHODIMP_(void) CSubPicAllocatorPresenterImpl::SetPosition(RECT w, RECT v)
 {
-	bool fWindowPosChanged = !!(m_windowRect != w);
-	bool fWindowSizeChanged = !!(m_windowRect.Size() != CRect(w).Size());
+	const bool bWindowPosChanged  = !!(m_windowRect != w);
+	const bool bWindowSizeChanged = !!(m_windowRect.Size() != CRect(w).Size());
+	const bool bVideoRectChanged  = !!(m_videoRect != v);
 
 	m_windowRect = w;
-
-	bool fVideoRectChanged = !!(m_videoRect != v);
-
 	m_videoRect = v;
 
-	if (fWindowSizeChanged || fVideoRectChanged) {
+	if (bWindowSizeChanged || bVideoRectChanged) {
 		if (m_pAllocator) {
 			m_pAllocator->SetCurSize(m_windowRect.Size());
 			m_pAllocator->SetCurVidRect(m_videoRect);
@@ -181,7 +191,7 @@ STDMETHODIMP_(void) CSubPicAllocatorPresenterImpl::SetPosition(RECT w, RECT v)
 		}
 	}
 
-	if (fWindowPosChanged || fVideoRectChanged) {
+	if (bWindowPosChanged || bVideoRectChanged) {
 		Paint(false);
 	}
 }
@@ -239,33 +249,6 @@ STDMETHODIMP_(void) CSubPicAllocatorPresenterImpl::Invalidate(REFERENCE_TIME rtI
 	}
 }
 
-#include <math.h>
-
-void CSubPicAllocatorPresenterImpl::Transform(CRect r, Vector v[4])
-{
-	v[0] = Vector((float)r.left,  (float)r.top, 0);
-	v[1] = Vector((float)r.right, (float)r.top, 0);
-	v[2] = Vector((float)r.left,  (float)r.bottom, 0);
-	v[3] = Vector((float)r.right, (float)r.bottom, 0);
-
-	Vector center((float)r.CenterPoint().x, (float)r.CenterPoint().y, 0);
-	int l = (int)(Vector((float)r.Size().cx, (float)r.Size().cy, 0).Length()*1.5f)+1;
-
-	for (size_t i = 0; i < 4; i++) {
-		v[i] = m_xform << (v[i] - center);
-		v[i].z = v[i].z / l + 0.5f;
-		v[i].x /= v[i].z*2;
-		v[i].y /= v[i].z*2;
-		v[i] += center;
-	}
-}
-
-STDMETHODIMP CSubPicAllocatorPresenterImpl::SetVideoAngle(Vector v)
-{
-	m_xform = XForm(Ray(Vector(0, 0, 0), v), Vector(1, 1, 1), false);
-	return S_OK;
-}
-
 // ISubRenderOptions
 
 STDMETHODIMP CSubPicAllocatorPresenterImpl::GetBool(LPCSTR field, bool* value)
@@ -277,20 +260,6 @@ STDMETHODIMP CSubPicAllocatorPresenterImpl::GetBool(LPCSTR field, bool* value)
 STDMETHODIMP CSubPicAllocatorPresenterImpl::GetInt(LPCSTR field, int* value)
 {
 	CheckPointer(value, E_POINTER);
-	if (!strcmp(field, "supportedLevels")) {
-		if (CComQIPtr<IMFVideoPresenter> pEVR = (ISubPicAllocatorPresenter3*)this) {
-			const CRenderersSettings& r = GetRenderersSettings();
-			if (r.m_AdvRendSets.iEVROutputRange == 1) {
-				*value = 3; // TV preferred
-			} else {
-				*value = 2; // PC preferred
-			}
-		} else {
-			*value = 0; // PC only
-		}
-		return S_OK;
-	}
-
 	return E_INVALIDARG;
 }
 
@@ -352,20 +321,20 @@ STDMETHODIMP CSubPicAllocatorPresenterImpl::GetString(LPCSTR field, LPWSTR* valu
 {
 	CheckPointer(value, E_POINTER);
 	CheckPointer(chars, E_POINTER);
-	CStringW ret;
+	CString ret;
 
 	if (!strcmp(field, "name")) {
 		ret = L"MPC-BE";
 	} else if (!strcmp(field, "version")) {
-		ret = MPC_VERSION_STR;
+		ret = MPC_VERSION_SVN_WSTR;
 	} else if (!strcmp(field, "yuvMatrix")) {
-		ret = L"None";
+		ret = L"TV.709";
 
 		if (m_inputMediaType.IsValid() && m_inputMediaType.formattype == FORMAT_VideoInfo2) {
-			VIDEOINFOHEADER2* pVIH2 = (VIDEOINFOHEADER2*)m_inputMediaType.pbFormat;
+			const VIDEOINFOHEADER2* pVIH2 = (VIDEOINFOHEADER2*)m_inputMediaType.pbFormat;
 
 			if (pVIH2->dwControlFlags & AMCONTROL_COLORINFO_PRESENT) {
-				DXVA2_ExtendedFormat& flags = (DXVA2_ExtendedFormat&)pVIH2->dwControlFlags;
+				const DXVA2_ExtendedFormat& flags = (DXVA2_ExtendedFormat&)pVIH2->dwControlFlags;
 
 				ret = (flags.NominalRange == DXVA2_NominalRange_Normal) ? L"PC." : L"TV.";
 
@@ -373,14 +342,12 @@ STDMETHODIMP CSubPicAllocatorPresenterImpl::GetString(LPCSTR field, LPWSTR* valu
 					case DXVA2_VideoTransferMatrix_BT601:
 						ret.Append(L"601");
 						break;
+					default:
 					case DXVA2_VideoTransferMatrix_BT709:
 						ret.Append(L"709");
 						break;
 					case DXVA2_VideoTransferMatrix_SMPTE240M:
 						ret.Append(L"240M");
-						break;
-					default:
-						ret = L"None";
 						break;
 				}
 			}
@@ -388,8 +355,8 @@ STDMETHODIMP CSubPicAllocatorPresenterImpl::GetString(LPCSTR field, LPWSTR* valu
 	}
 
 	if (!ret.IsEmpty()) {
-		int len = ret.GetLength();
-		size_t sz = (len + 1) * sizeof(WCHAR);
+		const int len = ret.GetLength();
+		const size_t sz = (len + 1) * sizeof(WCHAR);
 		LPWSTR buf = (LPWSTR)LocalAlloc(LPTR, sz);
 
 		if (!buf) {
@@ -454,6 +421,13 @@ STDMETHODIMP CSubPicAllocatorPresenterImpl::SetBin(LPCSTR field, LPVOID value, i
 }
 
 // ISubRenderConsumer
+
+STDMETHODIMP CSubPicAllocatorPresenterImpl::GetMerit(ULONG* plMerit)
+{
+	CheckPointer(plMerit, E_POINTER);
+	*plMerit = 4 << 16;
+	return S_OK;
+}
 
 STDMETHODIMP CSubPicAllocatorPresenterImpl::Connect(ISubRenderProvider* subtitleRenderer)
 {

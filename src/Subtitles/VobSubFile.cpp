@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2015 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -237,7 +237,7 @@ bool CVobSubFile::Copy(CVobSubFile& vsf)
 		dst.name = src.name;
 		dst.alt = src.alt;
 
-		for (size_t j = 0; j < src.subpos.GetCount(); j++) {
+		for (size_t j = 0; j < src.subpos.size(); j++) {
 			SubPos& sp = src.subpos[j];
 			if (!sp.fValid) {
 				continue;
@@ -259,7 +259,7 @@ bool CVobSubFile::Copy(CVobSubFile& vsf)
 					k < packetsize - 4;
 					k += size, sizeleft -= size) {
 				int hsize = buff[0x16]+0x18 + ((buff[0x15]&0x80) ? 4 : 0);
-				size = min(sizeleft, 2048 - hsize);
+				size = std::min(sizeleft, 2048 - hsize);
 
 				if (size != sizeleft) {
 					while (vsf.m_sub.Read(buff, 2048)) {
@@ -272,7 +272,7 @@ bool CVobSubFile::Copy(CVobSubFile& vsf)
 				}
 			}
 
-			dst.subpos.Add(sp);
+			dst.subpos.push_back(sp);
 		}
 	}
 
@@ -288,8 +288,8 @@ void CVobSubFile::TrimExtension(CString& fn)
 	int i = fn.ReverseFind('.');
 	if (i > 0) {
 		CString ext = fn.Mid(i).MakeLower();
-		if (ext == _T(".ifo") || ext == _T(".idx") || ext == _T(".sub")
-				|| ext == _T(".sst") || ext == _T(".son") || ext == _T(".rar")) {
+		if (ext == L".ifo" || ext == L".idx" || ext == L".sub"
+				|| ext == L".sst" || ext == L".son" || ext == L".rar") {
 			fn = fn.Left(i);
 		}
 	}
@@ -303,24 +303,24 @@ bool CVobSubFile::Open(CString fn)
 		Close();
 
 		int ver;
-		if (!ReadIdx(fn + _T(".idx"), ver)) {
+		if (!ReadIdx(fn + L".idx", ver)) {
 			break;
 		}
 
-		if (ver < 6 && !ReadIfo(fn + _T(".ifo"))) {
+		if (ver < 6 && !ReadIfo(fn + L".ifo")) {
 			break;
 		}
 
-		if (!ReadSub(fn + _T(".sub")) && !ReadRar(fn + _T(".rar"))) {
+		if (!ReadSub(fn + L".sub") && !ReadRar(fn + L".rar")) {
 			break;
 		}
 
 		m_title = fn;
 
 		for (int i = 0; i < 32; i++) {
-			CAtlArray<SubPos>& sp = m_langs[i].subpos;
+			std::vector<SubPos>& sp = m_langs[i].subpos;
 
-			for (size_t j = 0; j < sp.GetCount(); j++) {
+			for (size_t j = 0; j < sp.size(); j++) {
 				sp[j].stop = sp[j].start;
 				sp[j].fForced = false;
 
@@ -331,10 +331,10 @@ bool CVobSubFile::Open(CString fn)
 					continue;
 				}
 
-				m_img.delay = j + 1 < sp.GetCount() ? sp[j + 1].start - sp[j].start : 3000;
+				m_img.delay = j + 1 < sp.size() ? sp[j + 1].start - sp[j].start : 3000;
 				m_img.GetPacketInfo(buff, packetsize, datasize);
-				if (j + 1 < sp.GetCount()) {
-					m_img.delay = min(m_img.delay, sp[j + 1].start - sp[j].start);
+				if (j + 1 < sp.size()) {
+					m_img.delay = std::min(m_img.delay, sp[j + 1].start - sp[j].start);
 				}
 
 				sp[j].stop = sp[j].start + m_img.delay;
@@ -393,7 +393,7 @@ void CVobSubFile::Close()
 		m_langs[i].id = 0;
 		m_langs[i].name.Empty();
 		m_langs[i].alt.Empty();
-		m_langs[i].subpos.RemoveAll();
+		m_langs[i].subpos.clear();
 	}
 }
 
@@ -416,27 +416,27 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 		str.Trim();
 
 		if (line == 0) {
-			TCHAR buff[] = _T("VobSub index file, v");
+			WCHAR buff[] = L"VobSub index file, v";
 
-			const TCHAR* s = str;
+			const WCHAR* s = str;
 
 			int i = str.Find(buff);
-			if (i < 0 || _stscanf_s(&s[i+_tcslen(buff)], _T("%d"), &ver) != 1
+			if (i < 0 || swscanf_s(&s[i+wcslen(buff)], L"%d", &ver) != 1
 					|| ver > VOBSUBIDXVER) {
-				TRACE(_T("[CVobSubFile::ReadIdx] Wrong file version!\n"));
+				DLog(L"[CVobSubFile::ReadIdx] Wrong file version!");
 				fError = true;
 				continue;
 			}
 		} else if (!str.GetLength()) {
 			continue;
-		} else if (str[0] == _T('#')) {
-			TCHAR buff[] = _T("Vob/Cell ID:");
+		} else if (str[0] == L'#') {
+			WCHAR buff[] = L"Vob/Cell ID:";
 
-			const TCHAR* s = str;
+			const WCHAR* s = str;
 
 			int i = str.Find(buff);
 			if (i >= 0) {
-				_stscanf_s(&s[i+_tcslen(buff)], _T("%d, %d (PTS: %I64d)"), &vobid, &cellid, &celltimestamp);
+				swscanf_s(&s[i+wcslen(buff)], L"%d, %d (PTS: %I64d)", &vobid, &cellid, &celltimestamp);
 			}
 
 			continue;
@@ -455,93 +455,93 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 			continue;
 		}
 
-		if (entry == _T("size")) {
+		if (entry == L"size") {
 			int x, y;
-			if (_stscanf_s(str, _T("%dx%d"), &x, &y) != 2) {
+			if (swscanf_s(str, L"%dx%d", &x, &y) != 2) {
 				fError = true;
 			}
 			m_size.cx = x;
 			m_size.cy = y;
-		} else if (entry == _T("org")) {
-			if (_stscanf_s(str, _T("%d,%d"), &m_x, &m_y) != 2) {
+		} else if (entry == L"org") {
+			if (swscanf_s(str, L"%d,%d", &m_x, &m_y) != 2) {
 				fError = true;
 			} else {
 				m_org = CPoint(m_x, m_y);
 			}
-		} else if (entry == _T("scale")) {
+		} else if (entry == L"scale") {
 			if (ver < 5) {
 				int scale = 100;
-				if (_stscanf_s(str, _T("%d%%"), &scale) != 1) {
+				if (swscanf_s(str, L"%d%%", &scale) != 1) {
 					fError = true;
 				}
 				m_scale_x = m_scale_y = scale;
 			} else {
-				if (_stscanf_s(str, _T("%d%%,%d%%"), &m_scale_x, &m_scale_y) != 2) {
+				if (swscanf_s(str, L"%d%%,%d%%", &m_scale_x, &m_scale_y) != 2) {
 					fError = true;
 				}
 			}
-		} else if (entry == _T("alpha")) {
-			if (_stscanf_s(str, _T("%d"), &m_alpha) != 1) {
+		} else if (entry == L"alpha") {
+			if (swscanf_s(str, L"%d", &m_alpha) != 1) {
 				fError = true;
 			}
-		} else if (entry == _T("smooth")) {
+		} else if (entry == L"smooth") {
 			str.MakeLower();
 
-			if (str.Find(_T("old")) >= 0 || str.Find(_T("2")) >= 0) {
+			if (str.Find(L"old") >= 0 || str.Find(L"2") >= 0) {
 				m_fSmooth = 2;
-			} else if (str.Find(_T("on")) >= 0 || str.Find(_T("1")) >= 0) {
+			} else if (str.Find(L"on") >= 0 || str.Find(L"1") >= 0) {
 				m_fSmooth = 1;
-			} else if (str.Find(_T("off")) >= 0 || str.Find(_T("0")) >= 0) {
+			} else if (str.Find(L"off") >= 0 || str.Find(L"0") >= 0) {
 				m_fSmooth = 0;
 			} else {
 				fError = true;
 			}
-		} else if (entry == _T("fadein/out")) {
-			if (_stscanf_s(str, _T("%d,%d"), &m_fadein, &m_fadeout) != 2) {
+		} else if (entry == L"fadein/out") {
+			if (swscanf_s(str, L"%d,%d", &m_fadein, &m_fadeout) != 2) {
 				fError = true;
 			}
-		} else if (entry == _T("align")) {
+		} else if (entry == L"align") {
 			str.MakeLower();
 
 			int k = 0;
 			CString token;
 			for (int j = 0; j < 3; j++) {
-				token = str.Tokenize(_T(" "), k);
+				token = str.Tokenize(L" ", k);
 				if (token.IsEmpty()) {
 					break;
 				}
 
 				if (j == 0) {
-					if (token == _T("on") || token == _T("1")) {
+					if (token == L"on" || token == L"1") {
 						m_fAlign = true;
-					} else if (token == _T("off") || token == _T("0")) {
+					} else if (token == L"off" || token == L"0") {
 						m_fAlign = false;
 					} else {
 						fError = true;
 						break;
 					}
 				} else if (j == 1) {
-					if (token == _T("at")) {
+					if (token == L"at") {
 						j--;
 						continue;
 					}
 
-					if (token == _T("left")) {
+					if (token == L"left") {
 						m_alignhor = 0;
-					} else if (token == _T("center")) {
+					} else if (token == L"center") {
 						m_alignhor = 1;
-					} else if (token == _T("right")) {
+					} else if (token == L"right") {
 						m_alignhor = 2;
 					} else {
 						fError = true;
 						break;
 					}
 				} else if (j == 2) {
-					if (token == _T("top")) {
+					if (token == L"top") {
 						m_alignver = 0;
-					} else if (token == _T("center")) {
+					} else if (token == L"center") {
 						m_alignver = 1;
-					} else if (token == _T("bottom")) {
+					} else if (token == L"bottom") {
 						m_alignver = 2;
 					} else {
 						fError = true;
@@ -549,17 +549,17 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 					}
 				}
 			}
-		} else if (entry == _T("time offset")) {
+		} else if (entry == L"time offset") {
 			bool fNegative = false;
 			if (str[0] == '-') {
 				fNegative = true;
 			}
-			str.TrimLeft(_T("+-"));
+			str.TrimLeft(L"+-");
 
-			TCHAR c;
+			WCHAR c;
 			int hh, mm, ss, ms;
-			int n = _stscanf_s(str, _T("%d%c%d%c%d%c%d"), &hh, &c, sizeof(TCHAR),
-							   &mm, &c, sizeof(TCHAR), &ss, &c, sizeof(TCHAR), &ms);
+			int n = swscanf_s(str, L"%d%c%d%c%d%c%d", &hh, &c, sizeof(WCHAR),
+							   &mm, &c, sizeof(WCHAR), &ss, &c, sizeof(WCHAR), &ms);
 			switch (n) {
 				case 1: // We have read only one integer, interpret it as an offset expressed in milliseconds
 					m_toff = hh * (fNegative ? -1 : 1);
@@ -572,22 +572,22 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 					m_toff = 0;
 				break;
 			}
-		} else if (entry == _T("forced subs")) {
+		} else if (entry == L"forced subs") {
 			str.MakeLower();
 
-			if (str.Find(_T("on")) >= 0 || str.Find(_T("1")) >= 0) {
+			if (str.Find(L"on") >= 0 || str.Find(L"1") >= 0) {
 				m_fOnlyShowForcedSubs = true;
-			} else if (str.Find(_T("off")) >= 0 || str.Find(_T("0")) >= 0) {
+			} else if (str.Find(L"off") >= 0 || str.Find(L"0") >= 0) {
 				m_fOnlyShowForcedSubs = false;
 			} else {
 				fError = true;
 			}
-		} else if (entry == _T("langidx")) {
-			if (_stscanf_s(str, _T("%d"), &m_iLang) != 1) {
+		} else if (entry == L"langidx") {
+			if (swscanf_s(str, L"%d", &m_iLang) != 1) {
 				fError = true;
 			}
-		} else if (entry == _T("palette")) {
-			if (_stscanf_s(str, _T("%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x"),
+		} else if (entry == L"palette") {
+			if (swscanf_s(str, L"%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x",
 						   &m_orgpal[0], &m_orgpal[1], &m_orgpal[2], &m_orgpal[3],
 						   &m_orgpal[4], &m_orgpal[5], &m_orgpal[6], &m_orgpal[7],
 						   &m_orgpal[8], &m_orgpal[9], &m_orgpal[10], &m_orgpal[11],
@@ -595,58 +595,58 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 						  ) != 16) {
 				fError = true;
 			}
-		} else if (entry == _T("custom colors")) {
+		} else if (entry == L"custom colors") {
 			str.MakeLower();
 
-			if (str.Find(_T("on")) == 0 || str.Find(_T("1")) == 0) {
+			if (str.Find(L"on") == 0 || str.Find(L"1") == 0) {
 				m_fCustomPal = true;
-			} else if (str.Find(_T("off")) == 0 || str.Find(_T("0")) == 0) {
+			} else if (str.Find(L"off") == 0 || str.Find(L"0") == 0) {
 				m_fCustomPal = false;
 			} else {
 				fError = true;
 			}
 
-			i = str.Find(_T("tridx:"));
+			i = str.Find(L"tridx:");
 			if (i < 0) {
 				fError = true;
 				continue;
 			}
-			str = str.Mid(i + (int)_tcslen(_T("tridx:")));
+			str = str.Mid(i + (int)wcslen(L"tridx:"));
 
 			int tridx;
-			if (_stscanf_s(str, _T("%x"), &tridx) != 1) {
+			if (swscanf_s(str, L"%x", &tridx) != 1) {
 				fError = true;
 				continue;
 			}
 			tridx = ((tridx&0x1000)>>12) | ((tridx&0x100)>>7) | ((tridx&0x10)>>2) | ((tridx&1)<<3);
 
-			i = str.Find(_T("colors:"));
+			i = str.Find(L"colors:");
 			if (i < 0) {
 				fError = true;
 				continue;
 			}
-			str = str.Mid(i + (int)_tcslen(_T("colors:")));
+			str = str.Mid(i + (int)wcslen(L"colors:"));
 
 			RGBQUAD pal[4];
-			if (_stscanf_s(str, _T("%x,%x,%x,%x"), &pal[0], &pal[1], &pal[2], &pal[3]) != 4) {
+			if (swscanf_s(str, L"%x,%x,%x,%x", &pal[0], &pal[1], &pal[2], &pal[3]) != 4) {
 				fError = true;
 				continue;
 			}
 
 			SetCustomPal(pal, tridx);
-		} else if (entry == _T("id")) {
+		} else if (entry == L"id") {
 			str.MakeLower();
 
 			int langid = ((str[0]&0xff)<<8)|(str[1]&0xff);
 
-			i = str.Find(_T("index:"));
+			i = str.Find(L"index:");
 			if (i < 0) {
 				fError = true;
 				continue;
 			}
-			str = str.Mid(i + (int)_tcslen(_T("index:")));
+			str = str.Mid(i + (int)wcslen(L"index:"));
 
-			if (_stscanf_s(str, _T("%d"), &id) != 1 || id < 0 || id >= 32) {
+			if (swscanf_s(str, L"%d", &id) != 1 || id < 0 || id >= 32) {
 				fError = true;
 				continue;
 			}
@@ -659,25 +659,25 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 			m_langs[id].alt = lang_tbl[find_lang(langid)].lang_long;
 
 			delay = 0;
-		} else if (id >= 0 && entry == _T("alt")) {
+		} else if (id >= 0 && entry == L"alt") {
 			m_langs[id].alt = str;
-		} else if (id >= 0 && entry == _T("delay")) {
+		} else if (id >= 0 && entry == L"delay") {
 			bool fNegative = false;
 			if (str[0] == '-') {
 				fNegative = true;
 			}
-			str.TrimLeft(_T("+-"));
+			str.TrimLeft(L"+-");
 
-			TCHAR c;
+			WCHAR c;
 			int hh, mm, ss, ms;
-			if (_stscanf_s(str, _T("%d%c%d%c%d%c%d"), &hh, &c, sizeof(TCHAR),
-						   &mm, &c, sizeof(TCHAR), &ss, &c, sizeof(TCHAR), &ms) != 4+3) {
+			if (swscanf_s(str, L"%d%c%d%c%d%c%d", &hh, &c, sizeof(WCHAR),
+						   &mm, &c, sizeof(WCHAR), &ss, &c, sizeof(WCHAR), &ms) != 4+3) {
 				fError = true;
 				continue;
 			}
 
 			delay += (hh*60*60*1000 + mm*60*1000 + ss*1000 + ms) * (fNegative ? -1 : 1);
-		} else if (id >= 0 && entry == _T("timestamp")) {
+		} else if (id >= 0 && entry == L"timestamp") {
 			SubPos sb;
 
 			sb.vobid = vobid;
@@ -689,32 +689,32 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 			if (str[0] == '-') {
 				fNegative = true;
 			}
-			str.TrimLeft(_T("+-"));
+			str.TrimLeft(L"+-");
 
-			TCHAR c;
+			WCHAR c;
 			int hh, mm, ss, ms;
-			if (_stscanf_s(str, _T("%d%c%d%c%d%c%d"), &hh, &c, sizeof(TCHAR),
-						   &mm, &c, sizeof(TCHAR), &ss, &c, sizeof(TCHAR), &ms) != 4+3) {
+			if (swscanf_s(str, L"%d%c%d%c%d%c%d", &hh, &c, sizeof(WCHAR),
+						   &mm, &c, sizeof(WCHAR), &ss, &c, sizeof(WCHAR), &ms) != 4+3) {
 				fError = true;
 				continue;
 			}
 
 			sb.start = (hh*60*60*1000 + mm*60*1000 + ss*1000 + ms) * (fNegative ? -1 : 1) + delay;
 
-			i = str.Find(_T("filepos:"));
+			i = str.Find(L"filepos:");
 			if (i < 0) {
 				fError = true;
 				continue;
 			}
-			str = str.Mid(i + (int)_tcslen(_T("filepos:")));
+			str = str.Mid(i + (int)wcslen(L"filepos:"));
 
-			if (_stscanf_s(str, _T("%I64x"), &sb.filepos) != 1) {
+			if (swscanf_s(str, L"%I64x", &sb.filepos) != 1) {
 				fError = true;
 				continue;
 			}
 
-			if (delay < 0 && !m_langs[id].subpos.IsEmpty()) {
-				__int64 ts = m_langs[id].subpos[m_langs[id].subpos.GetCount()-1].start;
+			if (delay < 0 && !m_langs[id].subpos.empty()) {
+				__int64 ts = m_langs[id].subpos[m_langs[id].subpos.size()-1].start;
 
 				if (sb.start < ts) {
 					delay += (int)(ts - sb.start);
@@ -722,7 +722,7 @@ bool CVobSubFile::ReadIdx(CString fn, int& ver)
 				}
 			}
 
-			m_langs[id].subpos.Add(sb);
+			m_langs[id].subpos.push_back(sb);
 		} else {
 			fError = true;
 		}
@@ -743,7 +743,7 @@ bool CVobSubFile::ReadSub(CString fn)
 
 	int len;
 	BYTE buff[2048];
-	while ((len = f.Read(buff, sizeof(buff))) > 0 && GETDWORD(buff) == 0xba010000) {
+	while ((len = f.Read(buff, sizeof(buff))) > 0 && GETU32(buff) == 0xba010000) {
 		m_sub.Write(buff, len);
 	}
 
@@ -766,9 +766,9 @@ static int PASCAL MyProcessDataProc(unsigned char* Addr, int Size)
 bool CVobSubFile::ReadRar(CString fn)
 {
 #ifdef _WIN64
-	HMODULE h = LoadLibrary(_T("unrar64.dll"));
+	HMODULE h = LoadLibraryW(L"unrar64.dll");
 #else
-	HMODULE h = LoadLibrary(_T("unrar.dll"));
+	HMODULE h = LoadLibraryW(L"unrar.dll");
 #endif
 	if (!h) {
 		return false;
@@ -790,8 +790,8 @@ bool CVobSubFile::ReadRar(CString fn)
 
 	struct RAROpenArchiveDataEx ArchiveDataEx;
 	memset(&ArchiveDataEx, 0, sizeof(ArchiveDataEx));
-	ArchiveDataEx.ArcNameW = (LPTSTR)(LPCTSTR)fn;
-	char fnA[_MAX_PATH];
+	ArchiveDataEx.ArcNameW = (LPWSTR)(LPCWSTR)fn;
+	char fnA[MAX_PATH];
 	size_t size;
 	if (wcstombs_s(&size, fnA, fn, fn.GetLength())) {
 		fnA[0] = 0;
@@ -813,7 +813,7 @@ bool CVobSubFile::ReadRar(CString fn)
 	while (ReadHeaderEx(hrar, &HeaderDataEx) == 0) {
 		CString subfn(HeaderDataEx.FileNameW);
 
-		if (!subfn.Right(4).CompareNoCase(_T(".sub"))) {
+		if (!subfn.Right(4).CompareNoCase(L".sub")) {
 			CAutoVectorPtr<BYTE> buff;
 			if (!buff.Allocate(HeaderDataEx.UnpSize)) {
 				CloseArchive(hrar);
@@ -884,9 +884,9 @@ bool CVobSubFile::ReadIfo(CString fn)
 
 		y = (y - 16) * 255 / 219;
 
-		m_orgpal[i].rgbRed = (BYTE)min(max(1.0 * y + 1.4022 * (u - 128), 0), 255);
-		m_orgpal[i].rgbGreen = (BYTE)min(max(1.0 * y - 0.3456 * (u - 128) - 0.7145 * (v - 128), 0), 255);
-		m_orgpal[i].rgbBlue = (BYTE)min(max(1.0 * y + 1.7710 * (v - 128), 0) , 255);
+		m_orgpal[i].rgbRed   = (BYTE)std::clamp(1.0 * y + 1.4022 * (u - 128), 0.0, 255.0);
+		m_orgpal[i].rgbGreen = (BYTE)std::clamp(1.0 * y - 0.3456 * (u - 128) - 0.7145 * (v - 128), 0.0, 255.0);
+		m_orgpal[i].rgbBlue  = (BYTE)std::clamp(1.0 * y + 1.7710 * (v - 128), 0.0, 255.0);
 	}
 
 	return true;
@@ -900,74 +900,74 @@ bool CVobSubFile::WriteIdx(CString fn)
 	}
 
 	CString str;
-	str.Format(_T("# VobSub index file, v%d (do not modify this line!)\n"), VOBSUBIDXVER);
+	str.Format(L"# VobSub index file, v%d (do not modify this line!)\n", VOBSUBIDXVER);
 
 	f.WriteString(str);
-	f.WriteString(_T("# \n"));
-	f.WriteString(_T("# To repair desyncronization, you can insert gaps this way:\n"));
-	f.WriteString(_T("# (it usually happens after vob id changes)\n"));
-	f.WriteString(_T("# \n"));
-	f.WriteString(_T("#\t delay: [sign]hh:mm:ss:ms\n"));
-	f.WriteString(_T("# \n"));
-	f.WriteString(_T("# Where:\n"));
-	f.WriteString(_T("#\t [sign]: +, - (optional)\n"));
-	f.WriteString(_T("#\t hh: hours (0 <= hh)\n"));
-	f.WriteString(_T("#\t mm/ss: minutes/seconds (0 <= mm/ss <= 59)\n"));
-	f.WriteString(_T("#\t ms: milliseconds (0 <= ms <= 999)\n"));
-	f.WriteString(_T("# \n"));
-	f.WriteString(_T("#\t Note: You can't position a sub before the previous with a negative value.\n"));
-	f.WriteString(_T("# \n"));
-	f.WriteString(_T("# You can also modify timestamps or delete a few subs you don't like.\n"));
-	f.WriteString(_T("# Just make sure they stay in increasing order.\n"));
-	f.WriteString(_T("\n"));
-	f.WriteString(_T("\n"));
+	f.WriteString(L"# \n");
+	f.WriteString(L"# To repair desyncronization, you can insert gaps this way:\n");
+	f.WriteString(L"# (it usually happens after vob id changes)\n");
+	f.WriteString(L"# \n");
+	f.WriteString(L"#\t delay: [sign]hh:mm:ss:ms\n");
+	f.WriteString(L"# \n");
+	f.WriteString(L"# Where:\n");
+	f.WriteString(L"#\t [sign]: +, - (optional)\n");
+	f.WriteString(L"#\t hh: hours (0 <= hh)\n");
+	f.WriteString(L"#\t mm/ss: minutes/seconds (0 <= mm/ss <= 59)\n");
+	f.WriteString(L"#\t ms: milliseconds (0 <= ms <= 999)\n");
+	f.WriteString(L"# \n");
+	f.WriteString(L"#\t Note: You can't position a sub before the previous with a negative value.\n");
+	f.WriteString(L"# \n");
+	f.WriteString(L"# You can also modify timestamps or delete a few subs you don't like.\n");
+	f.WriteString(L"# Just make sure they stay in increasing order.\n");
+	f.WriteString(L"\n");
+	f.WriteString(L"\n");
 
 	// Settings
 
-	f.WriteString(_T("# Settings\n\n"));
+	f.WriteString(L"# Settings\n\n");
 
-	f.WriteString(_T("# Original frame size\n"));
-	str.Format(_T("size: %dx%d\n\n"), m_size.cx, m_size.cy);
+	f.WriteString(L"# Original frame size\n");
+	str.Format(L"size: %dx%d\n\n", m_size.cx, m_size.cy);
 	f.WriteString(str);
 
-	f.WriteString(_T("# Origin, relative to the upper-left corner, can be overloaded by aligment\n"));
-	str.Format(_T("org: %d, %d\n\n"), m_x, m_y);
+	f.WriteString(L"# Origin, relative to the upper-left corner, can be overloaded by aligment\n");
+	str.Format(L"org: %d, %d\n\n", m_x, m_y);
 	f.WriteString(str);
 
-	f.WriteString(_T("# Image scaling (hor,ver), origin is at the upper-left corner or at the alignment coord (x, y)\n"));
-	str.Format(_T("scale: %d%%, %d%%\n\n"), m_scale_x, m_scale_y);
+	f.WriteString(L"# Image scaling (hor,ver), origin is at the upper-left corner or at the alignment coord (x, y)\n");
+	str.Format(L"scale: %d%%, %d%%\n\n", m_scale_x, m_scale_y);
 	f.WriteString(str);
 
-	f.WriteString(_T("# Alpha blending\n"));
-	str.Format(_T("alpha: %d%%\n\n"), m_alpha);
+	f.WriteString(L"# Alpha blending\n");
+	str.Format(L"alpha: %d%%\n\n", m_alpha);
 	f.WriteString(str);
 
-	f.WriteString(_T("# Smoothing for very blocky images (use OLD for no filtering)\n"));
-	str.Format(_T("smooth: %s\n\n"), m_fSmooth == 0 ? _T("OFF") : m_fSmooth == 1 ? _T("ON") : _T("OLD"));
+	f.WriteString(L"# Smoothing for very blocky images (use OLD for no filtering)\n");
+	str.Format(L"smooth: %s\n\n", m_fSmooth == 0 ? L"OFF" : m_fSmooth == 1 ? L"ON" : L"OLD");
 	f.WriteString(str);
 
-	f.WriteString(_T("# In millisecs\n"));
-	str.Format(_T("fadein/out: %d, %d\n\n"), m_fadein, m_fadeout);
+	f.WriteString(L"# In millisecs\n");
+	str.Format(L"fadein/out: %d, %d\n\n", m_fadein, m_fadeout);
 	f.WriteString(str);
 
-	f.WriteString(_T("# Force subtitle placement relative to (org.x, org.y)\n"));
-	str.Format(_T("align: %s %s %s\n\n"),
-			   m_fAlign ? _T("ON at") : _T("OFF at"),
-			   m_alignhor == 0 ? _T("LEFT") : m_alignhor == 1 ? _T("CENTER") : m_alignhor == 2 ? _T("RIGHT") : _T(""),
-			   m_alignver == 0 ? _T("TOP") : m_alignver == 1 ? _T("CENTER") : m_alignver == 2 ? _T("BOTTOM") : _T(""));
+	f.WriteString(L"# Force subtitle placement relative to (org.x, org.y)\n");
+	str.Format(L"align: %s %s %s\n\n",
+			   m_fAlign ? L"ON at" : L"OFF at",
+			   m_alignhor == 0 ? L"LEFT" : m_alignhor == 1 ? L"CENTER" : m_alignhor == 2 ? L"RIGHT" : L"",
+			   m_alignver == 0 ? L"TOP" : m_alignver == 1 ? L"CENTER" : m_alignver == 2 ? L"BOTTOM" : L"");
 	f.WriteString(str);
 
-	f.WriteString(_T("# For correcting non-progressive desync. (in millisecs or hh:mm:ss:ms)\n"));
-	f.WriteString(_T("# Note: Not effective in DirectVobSub, use \"delay: ... \" instead.\n"));
-	str.Format(_T("time offset: %u\n\n"), m_toff);
+	f.WriteString(L"# For correcting non-progressive desync. (in millisecs or hh:mm:ss:ms)\n");
+	f.WriteString(L"# Note: Not effective in DirectVobSub, use \"delay: ... \" instead.\n");
+	str.Format(L"time offset: %u\n\n", m_toff);
 	f.WriteString(str);
 
-	f.WriteString(_T("# ON: displays only forced subtitles, OFF: shows everything\n"));
-	str.Format(_T("forced subs: %s\n\n"), m_fOnlyShowForcedSubs ? _T("ON") : _T("OFF"));
+	f.WriteString(L"# ON: displays only forced subtitles, OFF: shows everything\n");
+	str.Format(L"forced subs: %s\n\n", m_fOnlyShowForcedSubs ? L"ON" : L"OFF");
 	f.WriteString(str);
 
-	f.WriteString(_T("# The original palette of the DVD\n"));
-	str.Format(_T("palette: %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x\n\n"),
+	f.WriteString(L"# The original palette of the DVD\n");
+	str.Format(L"palette: %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x, %06x\n\n",
 			   *((unsigned int*)&m_orgpal[0])&0xffffff,
 			   *((unsigned int*)&m_orgpal[1])&0xffffff,
 			   *((unsigned int*)&m_orgpal[2])&0xffffff,
@@ -988,9 +988,9 @@ bool CVobSubFile::WriteIdx(CString fn)
 
 	int tridx = (!!(m_tridx&1))*0x1000 + (!!(m_tridx&2))*0x100 + (!!(m_tridx&4))*0x10 + (!!(m_tridx&8));
 
-	f.WriteString(_T("# Custom colors (transp idxs and the four colors)\n"));
-	str.Format(_T("custom colors: %s, tridx: %04x, colors: %06x, %06x, %06x, %06x\n\n"),
-			   m_fCustomPal ? _T("ON") : _T("OFF"),
+	f.WriteString(L"# Custom colors (transp idxs and the four colors)\n");
+	str.Format(L"custom colors: %s, tridx: %04x, colors: %06x, %06x, %06x, %06x\n\n",
+			   m_fCustomPal ? L"ON" : L"OFF",
 			   tridx,
 			   *((unsigned int*)&m_cuspal[0])&0xffffff,
 			   *((unsigned int*)&m_cuspal[1])&0xffffff,
@@ -998,8 +998,8 @@ bool CVobSubFile::WriteIdx(CString fn)
 			   *((unsigned int*)&m_cuspal[3])&0xffffff);
 	f.WriteString(str);
 
-	f.WriteString(_T("# Language index in use\n"));
-	str.Format(_T("langidx: %d\n\n"), m_iLang);
+	f.WriteString(L"# Language index in use\n");
+	str.Format(L"langidx: %d\n\n", m_iLang);
 	f.WriteString(str);
 
 	// Subs
@@ -1007,45 +1007,45 @@ bool CVobSubFile::WriteIdx(CString fn)
 	for (size_t i = 0; i < 32; i++) {
 		SubLang& sl = m_langs[i];
 
-		CAtlArray<SubPos>& sp = sl.subpos;
-		if (sp.IsEmpty() && !sl.id) {
+		std::vector<SubPos>& sp = sl.subpos;
+		if (sp.empty() && !sl.id) {
 			continue;
 		}
 
-		str.Format(_T("# %s\n"), sl.name);
+		str.Format(L"# %s\n", sl.name);
 		f.WriteString(str);
 
 		ASSERT(sl.id);
 		if (!sl.id) {
 			sl.id = '--';
 		}
-		str.Format(_T("id: %c%c, index: %Iu\n"), sl.id >> 8, sl.id & 0xff, i);
+		str.Format(L"id: %c%c, index: %Iu\n", sl.id >> 8, sl.id & 0xff, i);
 		f.WriteString(str);
 
-		str = _T("# Uncomment next line to activate alternative name in DirectVobSub / Windows Media Player 6.x\n");
+		str = L"# Uncomment next line to activate alternative name in DirectVobSub / Windows Media Player 6.x\n";
 		f.WriteString(str);
-		str.Format(_T("alt: %s\n"), sl.alt);
+		str.Format(L"alt: %s\n", sl.alt);
 		if (sl.name == sl.alt) {
-			str = _T("# ") + str;
+			str = L"# " + str;
 		}
 		f.WriteString(str);
 
 		char vobid = -1, cellid = -1;
 
-		for (size_t j = 0; j < sp.GetCount(); j++) {
+		for (size_t j = 0; j < sp.size(); j++) {
 			if (!sp[j].fValid) {
 				continue;
 			}
 
 			if (sp[j].vobid != vobid || sp[j].cellid != cellid) {
-				str.Format(_T("# Vob/Cell ID: %d, %d (PTS: %I64d)\n"), sp[j].vobid, sp[j].cellid, sp[j].celltimestamp);
+				str.Format(L"# Vob/Cell ID: %d, %d (PTS: %I64d)\n", sp[j].vobid, sp[j].cellid, sp[j].celltimestamp);
 				f.WriteString(str);
 				vobid = sp[j].vobid;
 				cellid = sp[j].cellid;
 			}
 
-			str.Format(_T("timestamp: %s%02d:%02d:%02d:%03d, filepos: %09I64x\n"),
-					   sp[j].start < 0 ? _T("-") : _T(""),
+			str.Format(L"timestamp: %s%02d:%02d:%02d:%03d, filepos: %09I64x\n",
+					   sp[j].start < 0 ? L"-" : L"",
 					   abs(int((sp[j].start/1000/60/60)%60)),
 					   abs(int((sp[j].start/1000/60)%60)),
 					   abs(int((sp[j].start/1000)%60)),
@@ -1054,7 +1054,7 @@ bool CVobSubFile::WriteIdx(CString fn)
 			f.WriteString(str);
 		}
 
-		f.WriteString(_T("\n"));
+		f.WriteString(L"\n");
 	}
 
 	return true;
@@ -1075,7 +1075,7 @@ bool CVobSubFile::WriteSub(CString fn)
 
 	int len;
 	BYTE buff[2048];
-	while ((len = m_sub.Read(buff, sizeof(buff))) > 0 && GETDWORD(buff) == 0xba010000) {
+	while ((len = m_sub.Read(buff, sizeof(buff))) > 0 && GETU32(buff) == 0xba010000) {
 		f.Write(buff, len);
 	}
 
@@ -1091,10 +1091,10 @@ BYTE* CVobSubFile::GetPacket(int idx, int& packetsize, int& datasize, int iLang)
 	if (iLang < 0 || iLang >= 32) {
 		iLang = m_iLang;
 	}
-	CAtlArray<SubPos>& sp = m_langs[iLang].subpos;
+	std::vector<SubPos>& sp = m_langs[iLang].subpos;
 
 	do {
-		if (idx < 0 || (size_t)idx >= sp.GetCount()) {
+		if (idx < 0 || (size_t)idx >= sp.size()) {
 			break;
 		}
 
@@ -1108,8 +1108,8 @@ BYTE* CVobSubFile::GetPacket(int idx, int& packetsize, int& datasize, int iLang)
 		}
 
 		// let's check a few things to make sure...
-		if (GETDWORD(&buff[0x00]) != 0xba010000
-				|| GETDWORD(&buff[0x0e]) != 0xbd010000
+		if (GETU32(&buff[0x00]) != 0xba010000
+				|| GETU32(&buff[0x0e]) != 0xbd010000
 				|| !(buff[0x15] & 0x80)
 				|| (buff[0x17] & 0xf0) != 0x20
 				|| (buff[buff[0x16] + 0x17] & 0xe0) != 0x20
@@ -1128,7 +1128,7 @@ BYTE* CVobSubFile::GetPacket(int idx, int& packetsize, int& datasize, int iLang)
 		int i = 0, sizeleft = packetsize;
 		for (int size; i < packetsize; i += size, sizeleft -= size) {
 			int hsize = 0x18 + buff[0x16];
-			size = min(sizeleft, 0x800 - hsize);
+			size = std::min(sizeleft, 0x800 - hsize);
 			memcpy(&ret[i], &buff[hsize], size);
 
 			if (size != sizeleft) {
@@ -1153,11 +1153,11 @@ const CVobSubFile::SubPos* CVobSubFile::GetFrameInfo(int idx, int iLang /*= -1*/
 	if (iLang < 0 || iLang >= 32) {
 		iLang = m_iLang;
 	}
-	const CAtlArray<SubPos>& sp = m_langs[iLang].subpos;
+	const std::vector<SubPos>& sp = m_langs[iLang].subpos;
 
-	if (idx < 0 || (size_t)idx >= sp.GetCount()
+	if (idx < 0 || (size_t)idx >= sp.size()
 			|| !sp[idx].fValid
-			|| (m_fOnlyShowForcedSubs && !sp[idx].fForced)) {
+			|| ((m_fOnlyShowForcedSubs || g_bForcedSubtitle) && !sp[idx].fForced)) {
 		return NULL;
 	}
 
@@ -1169,9 +1169,9 @@ bool CVobSubFile::GetFrame(int idx, int iLang /*= -1*/, REFERENCE_TIME rt /*= -1
 	if (iLang < 0 || iLang >= 32) {
 		iLang = m_iLang;
 	}
-	CAtlArray<SubPos>& sp = m_langs[iLang].subpos;
+	std::vector<SubPos>& sp = m_langs[iLang].subpos;
 
-	if (idx < 0 || (size_t)idx >= sp.GetCount()) {
+	if (idx < 0 || (size_t)idx >= sp.size()) {
 		return false;
 	}
 
@@ -1213,9 +1213,9 @@ int CVobSubFile::GetFrameIdxByTimeStamp(__int64 time)
 		return -1;
 	}
 
-	CAtlArray<SubPos>& sp = m_langs[m_iLang].subpos;
+	std::vector<SubPos>& sp = m_langs[m_iLang].subpos;
 
-	int i = 0, j = (int)sp.GetCount() - 1, ret = -1;
+	int i = 0, j = (int)sp.size() - 1, ret = -1;
 
 	if (j >= 0 && time >= sp[j].start) {
 		return j;
@@ -1327,10 +1327,6 @@ STDMETHODIMP CVobSubFile::Render(SubPicDesc& spd, REFERENCE_TIME rt, double fps,
 		return E_FAIL;
 	}
 
-	if (g_bForcedSubtitle && !m_img.fForced) {
-		return E_FAIL;
-	}
-
 	return __super::Render(spd, bbox);
 }
 
@@ -1347,7 +1343,7 @@ STDMETHODIMP_(int) CVobSubFile::GetStreamCount()
 {
 	int iStreamCount = 0;
 	for (size_t i = 0; i < 32; i++) {
-		if (m_langs[i].subpos.GetCount()) {
+		if (m_langs[i].subpos.size()) {
 			iStreamCount++;
 		}
 	}
@@ -1359,7 +1355,7 @@ STDMETHODIMP CVobSubFile::GetStreamInfo(int iStream, WCHAR** ppName, LCID* pLCID
 	for (size_t i = 0; i < 32; i++) {
 		SubLang& sl = m_langs[i];
 
-		if (sl.subpos.IsEmpty() || iStream-- > 0) {
+		if (sl.subpos.empty() || iStream-- > 0) {
 			continue;
 		}
 
@@ -1387,7 +1383,7 @@ STDMETHODIMP_(int) CVobSubFile::GetStream()
 	int iStream = 0;
 
 	for (ptrdiff_t i = 0; i < m_iLang; i++) {
-		if (!m_langs[i].subpos.IsEmpty()) {
+		if (!m_langs[i].subpos.empty()) {
 			iStream++;
 		}
 	}
@@ -1398,9 +1394,9 @@ STDMETHODIMP_(int) CVobSubFile::GetStream()
 STDMETHODIMP CVobSubFile::SetStream(int iStream)
 {
 	for (int i = 0; i < 32; i++) {
-		CAtlArray<SubPos>& sp = m_langs[i].subpos;
+		std::vector<SubPos>& sp = m_langs[i].subpos;
 
-		if (sp.IsEmpty() || iStream-- > 0) {
+		if (sp.empty() || iStream-- > 0) {
 			continue;
 		}
 
@@ -1429,8 +1425,10 @@ static void PixelAtBiLinear(RGBQUAD& c, int x, int y, CVobSubImage& src)
 	int w = src.rect.Width(),
 		h = src.rect.Height();
 
-	int x1 = (x >> 16), y1 = (y >> 16) * w,
-		x2 = min(x1 + 1, w - 1), y2 = min(y1 + w, (h - 1) * w);
+	int x1 = (x >> 16),
+		y1 = (y >> 16) * w,
+		x2 = std::min(x1 + 1, w - 1),
+		y2 = std::min(y1 + w, (h - 1) * w);
 
 	RGBQUAD* ptr = src.lpPixels;
 
@@ -1632,8 +1630,8 @@ void CVobSubSettings::SetAlignment(bool fAlign, int x, int y, int hor, int ver)
 	if (fAlign) {
 		m_org.x = MulDiv(m_size.cx, x, 100);
 		m_org.y = MulDiv(m_size.cy, y, 100);
-		m_alignhor = min(max(hor, 0), 2);
-		m_alignver = min(max(ver, 0), 2);
+		m_alignhor = std::clamp(hor, 0, 2);
+		m_alignver = std::clamp(ver, 0, 2);
 	} else {
 		m_org.x = m_x;
 		m_org.y = m_y;
@@ -1679,7 +1677,7 @@ static bool CompressFile(CString fn)
 
 bool CVobSubFile::SaveVobSub(CString fn)
 {
-	return WriteIdx(fn + _T(".idx")) && WriteSub(fn + _T(".sub"));
+	return WriteIdx(fn + L".idx") && WriteSub(fn + L".sub");
 }
 
 bool CVobSubFile::SaveWinSubMux(CString fn)
@@ -1687,7 +1685,7 @@ bool CVobSubFile::SaveWinSubMux(CString fn)
 	TrimExtension(fn);
 
 	CStdioFile f;
-	if (!f.Open(fn + _T(".sub"), CFile::modeCreate|CFile::modeWrite|CFile::typeText|CFile::shareDenyWrite)) {
+	if (!f.Open(fn + L".sub", CFile::modeCreate|CFile::modeWrite|CFile::typeText|CFile::shareDenyWrite)) {
 		return false;
 	}
 
@@ -1698,8 +1696,8 @@ bool CVobSubFile::SaveWinSubMux(CString fn)
 		return false;
 	}
 
-	CAtlArray<SubPos>& sp = m_langs[m_iLang].subpos;
-	for (size_t i = 0; i < sp.GetCount(); i++) {
+	std::vector<SubPos>& sp = m_langs[m_iLang].subpos;
+	for (size_t i = 0; i < sp.size(); i++) {
 		if (!GetFrame((int)i)) {
 			continue;
 		}
@@ -1772,10 +1770,10 @@ bool CVobSubFile::SaveWinSubMux(CString fn)
 		}
 
 		CString bmpfn;
-		bmpfn.Format(_T("%s_%06u.bmp"), fn, i+1);
+		bmpfn.Format(L"%s_%06u.bmp", fn, i+1);
 
 		CString str;
-		str.Format(_T("%s\t%02d:%02d:%02d:%02d %02d:%02d:%02d:%02d\t%03d %03d %03d %03d %d %d %d %d\n"),
+		str.Format(L"%s\t%02d:%02d:%02d:%02d %02d:%02d:%02d:%02d\t%03d %03d %03d %03d %d %d %d %d\n",
 				   bmpfn,
 				   t1/1000/60/60, (t1/1000/60)%60, (t1/1000)%60, (t1%1000)/10,
 				   t2/1000/60/60, (t2/1000/60)%60, (t2/1000)%60, (t2%1000)/10,
@@ -1818,7 +1816,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 	TrimExtension(fn);
 
 	CStdioFile f;
-	if (!f.Open(fn + _T(".sst"), CFile::modeCreate|CFile::modeWrite|CFile::typeText|CFile::shareDenyWrite)) {
+	if (!f.Open(fn + L".sst", CFile::modeCreate|CFile::modeWrite|CFile::typeText|CFile::shareDenyWrite)) {
 		return false;
 	}
 
@@ -1827,37 +1825,37 @@ bool CVobSubFile::SaveScenarist(CString fn)
 	fn.Replace('\\', '/');
 	CString title = fn.Mid(fn.ReverseFind('/')+1);
 
-	TCHAR buff[MAX_PATH], * pFilePart = buff;
-	if (GetFullPathName(fn, MAX_PATH, buff, &pFilePart) == 0) {
+	WCHAR buff[MAX_PATH], * pFilePart = buff;
+	if (GetFullPathNameW(fn, MAX_PATH, buff, &pFilePart) == 0) {
 		return false;
 	}
 
 	CString fullpath = CString(buff).Left(int(pFilePart - buff));
-	fullpath.TrimRight(_T("\\/"));
+	fullpath.TrimRight(L"\\/");
 	if (fullpath.IsEmpty()) {
 		return false;
 	}
 
 	CString str, str2;
-	str += _T("st_format\t2\n");
-	str += _T("Display_Start\t%s\n");
-	str += _T("TV_Type\t\t%s\n");
-	str += _T("Tape_Type\tNON_DROP\n");
-	str += _T("Pixel_Area\t(0 %d)\n");
-	str += _T("Directory\t%s\n");
-	str += _T("Subtitle\t%s\n");
-	str += _T("Display_Area\t(0 2 719 %d)\n");
-	str += _T("Contrast\t(15 15 15 0)\n");
-	str += _T("\n");
-	str += _T("PA\t(0 0 255 - - - )\n");
-	str += _T("E1\t(255 0 0 - - - )\n");
-	str += _T("E2\t(0 0 0 - - - )\n");
-	str += _T("BG\t(255 255 255 - - - )\n");
-	str += _T("\n");
-	str += _T("SP_NUMBER\tSTART\tEND\tFILE_NAME\n");
+	str += L"st_format\t2\n";
+	str += L"Display_Start\t%s\n";
+	str += L"TV_Type\t\t%s\n";
+	str += L"Tape_Type\tNON_DROP\n";
+	str += L"Pixel_Area\t(0 %d)\n";
+	str += L"Directory\t%s\n";
+	str += L"Subtitle\t%s\n";
+	str += L"Display_Area\t(0 2 719 %d)\n";
+	str += L"Contrast\t(15 15 15 0)\n";
+	str += L"\n";
+	str += L"PA\t(0 0 255 - - - )\n";
+	str += L"E1\t(255 0 0 - - - )\n";
+	str += L"E2\t(0 0 0 - - - )\n";
+	str += L"BG\t(255 255 255 - - - )\n";
+	str += L"\n";
+	str += L"SP_NUMBER\tSTART\tEND\tFILE_NAME\n";
 	str2.Format(str,
-				!m_fOnlyShowForcedSubs ? _T("non_forced") : _T("forced"),
-				m_size.cy == 480 ? _T("NTSC") : _T("PAL"),
+				!m_fOnlyShowForcedSubs ? L"non_forced" : L"forced",
+				m_size.cy == 480 ? L"NTSC" : L"PAL",
 				m_size.cy-3,
 				fullpath,
 				title,
@@ -1934,8 +1932,8 @@ bool CVobSubFile::SaveScenarist(CString fn)
 
 	int pc[4] = {1, 1, 1, 1}, pa[4] = {15, 15, 15, 0};
 
-	CAtlArray<SubPos>& sp = m_langs[m_iLang].subpos;
-	for (size_t i = 0, k = 0; i < sp.GetCount(); i++) {
+	std::vector<SubPos>& sp = m_langs[m_iLang].subpos;
+	for (size_t i = 0, k = 0; i < sp.size(); i++) {
 		if (!GetFrame((int)i)) {
 			continue;
 		}
@@ -1948,7 +1946,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 			}
 		}
 
-		for (ptrdiff_t y = max(m_img.rect.top + 1, 2l); y < m_img.rect.bottom - 1; y++) {
+		for (LONG y = std::max(m_img.rect.top + 1, 2L); y < m_img.rect.bottom - 1; y++) {
 			ASSERT(m_size.cy-y-1 >= 0);
 			if (m_size.cy-y-1 < 0) {
 				break;
@@ -1956,7 +1954,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 
 			DWORD* p = (DWORD*)&m_img.lpPixels[(y-m_img.rect.top)*m_img.rect.Width()+1];
 
-			for (ptrdiff_t x = m_img.rect.left+1; x < m_img.rect.right-1; x++, p++) {
+			for (LONG x = m_img.rect.left+1; x < m_img.rect.right-1; x++, p++) {
 				DWORD rgb = *p&0xffffff;
 				BYTE c = rgb == 0x0000ff ? 0 : rgb == 0xff0000 ? 1 : rgb == 0x000000 ? 2 : 3;
 				BYTE& c4bpp = p4bpp[(m_size.cy-y-1)*360+(x>>1)];
@@ -1965,7 +1963,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 		}
 
 		CString bmpfn;
-		bmpfn.Format(_T("%s_%04u.bmp"), fn, i+1);
+		bmpfn.Format(L"%s_%04u.bmp", fn, i+1);
 		title = bmpfn.Mid(bmpfn.ReverseFind('/')+1);
 
 		// E1, E2, P, Bg
@@ -1974,7 +1972,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 
 		if (memcmp(pc, c, sizeof(c))) {
 			memcpy(pc, c, sizeof(c));
-			str.Format(_T("Color\t (%d %d %d %d)\n"), c[0], c[1], c[2], c[3]);
+			str.Format(L"Color\t (%d %d %d %d)\n", c[0], c[1], c[2], c[3]);
 			f.WriteString(str);
 		}
 
@@ -1984,7 +1982,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 
 		if (memcmp(pa, a, sizeof(a))) {
 			memcpy(pa, a, sizeof(a));
-			str.Format(_T("Contrast (%d %d %d %d)\n"), a[0], a[1], a[2], a[3]);
+			str.Format(L"Contrast (%d %d %d %d)\n", a[0], a[1], a[2], a[3]);
 			f.WriteString(str);
 		}
 
@@ -2019,7 +2017,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 			}
 		}
 
-		if (i+1 < sp.GetCount()) {
+		if (i+1 < sp.size()) {
 			int t3 = (int)sp[i+1].start;
 			int h3 = t3/1000/60/60, m3 = (t3/1000/60)%60, s3 = (t3/1000)%60;
 			int f3 = (int)((m_size.cy==480?29.97:25)*(t3%1000)/1000);
@@ -2047,7 +2045,7 @@ bool CVobSubFile::SaveScenarist(CString fn)
 			continue;
 		}
 
-		str.Format(_T("%04u\t%02d:%02d:%02d:%02d\t%02d:%02d:%02d:%02d\t%s\n"),
+		str.Format(L"%04u\t%02d:%02d:%02d:%02d\t%02d:%02d:%02d:%02d\t%s\n",
 				   ++k,
 				   h1, m1, s1, f1,
 				   h2, m2, s2, f2,
@@ -2077,7 +2075,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 	TrimExtension(fn);
 
 	CStdioFile f;
-	if (!f.Open(fn + _T(".son"), CFile::modeCreate|CFile::modeWrite|CFile::typeText|CFile::shareDenyWrite)) {
+	if (!f.Open(fn + L".son", CFile::modeCreate|CFile::modeWrite|CFile::typeText|CFile::shareDenyWrite)) {
 		return false;
 	}
 
@@ -2086,32 +2084,32 @@ bool CVobSubFile::SaveMaestro(CString fn)
 	fn.Replace('\\', '/');
 	CString title = fn.Mid(fn.ReverseFind('/')+1);
 
-	TCHAR buff[MAX_PATH], * pFilePart = buff;
-	if (GetFullPathName(fn, MAX_PATH, buff, &pFilePart) == 0) {
+	WCHAR buff[MAX_PATH], * pFilePart = buff;
+	if (GetFullPathNameW(fn, MAX_PATH, buff, &pFilePart) == 0) {
 		return false;
 	}
 
 	CString fullpath = CString(buff).Left(int(pFilePart - buff));
-	fullpath.TrimRight(_T("\\/"));
+	fullpath.TrimRight(L"\\/");
 	if (fullpath.IsEmpty()) {
 		return false;
 	}
 
 	CString str, str2;
-	str += _T("st_format\t2\n");
-	str += _T("Display_Start\t%s\n");
-	str += _T("TV_Type\t\t%s\n");
-	str += _T("Tape_Type\tNON_DROP\n");
-	str += _T("Pixel_Area\t(0 %d)\n");
-	str += _T("Directory\t%s\n");
-	str += _T("Subtitle\t%s\n");
-	str += _T("Display_Area\t(0 2 719 %d)\n");
-	str += _T("Contrast\t(15 15 15 0)\n");
-	str += _T("\n");
-	str += _T("SP_NUMBER\tSTART\tEND\tFILE_NAME\n");
+	str += L"st_format\t2\n";
+	str += L"Display_Start\t%s\n";
+	str += L"TV_Type\t\t%s\n";
+	str += L"Tape_Type\tNON_DROP\n";
+	str += L"Pixel_Area\t(0 %d)\n";
+	str += L"Directory\t%s\n";
+	str += L"Subtitle\t%s\n";
+	str += L"Display_Area\t(0 2 719 %d)\n";
+	str += L"Contrast\t(15 15 15 0)\n";
+	str += L"\n";
+	str += L"SP_NUMBER\tSTART\tEND\tFILE_NAME\n";
 	str2.Format(str,
-				!m_fOnlyShowForcedSubs ? _T("non_forced") : _T("forced"),
-				m_size.cy == 480 ? _T("NTSC") : _T("PAL"),
+				!m_fOnlyShowForcedSubs ? L"non_forced" : L"forced",
+				m_size.cy == 480 ? L"NTSC" : L"PAL",
 				m_size.cy-3,
 				fullpath,
 				title,
@@ -2153,7 +2151,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 	}
 
 	CFile spf;
-	if (spf.Open(fn + _T(".spf"), CFile::modeCreate|CFile::modeWrite|CFile::typeBinary)) {
+	if (spf.Open(fn + L".spf", CFile::modeCreate|CFile::modeWrite|CFile::typeBinary)) {
 		for (size_t i = 0; i < 16; i++) {
 			COLORREF c = (m_orgpal[i].rgbBlue<<16) | (m_orgpal[i].rgbGreen<<8) | m_orgpal[i].rgbRed;
 			spf.Write(&c, sizeof(COLORREF));
@@ -2164,8 +2162,8 @@ bool CVobSubFile::SaveMaestro(CString fn)
 
 	int pc[4] = {1,1,1,1}, pa[4] = {15,15,15,0};
 
-	CAtlArray<SubPos>& sp = m_langs[m_iLang].subpos;
-	for (size_t i = 0, k = 0; i < sp.GetCount(); i++) {
+	std::vector<SubPos>& sp = m_langs[m_iLang].subpos;
+	for (size_t i = 0, k = 0; i < sp.size(); i++) {
 		if (!GetFrame((int)i)) {
 			continue;
 		}
@@ -2178,7 +2176,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 			}
 		}
 
-		for (ptrdiff_t y = max(m_img.rect.top+1, 2); y < m_img.rect.bottom-1; y++) {
+		for (LONG y = std::max(m_img.rect.top+1, 2L); y < m_img.rect.bottom-1; y++) {
 			ASSERT(m_size.cy-y-1 >= 0);
 			if (m_size.cy-y-1 < 0) {
 				break;
@@ -2186,7 +2184,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 
 			DWORD* p = (DWORD*)&m_img.lpPixels[(y-m_img.rect.top)*m_img.rect.Width()+1];
 
-			for (ptrdiff_t x = m_img.rect.left+1; x < m_img.rect.right-1; x++, p++) {
+			for (LONG x = m_img.rect.left+1; x < m_img.rect.right-1; x++, p++) {
 				DWORD rgb = *p&0xffffff;
 				BYTE c = rgb == 0x0000ff ? 0 : rgb == 0xff0000 ? 1 : rgb == 0x000000 ? 2 : 3;
 				BYTE& c4bpp = p4bpp[(m_size.cy-y-1)*360+(x>>1)];
@@ -2195,7 +2193,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 		}
 
 		CString bmpfn;
-		bmpfn.Format(_T("%s_%04d.bmp"), fn, i+1);
+		bmpfn.Format(L"%s_%04d.bmp", fn, i+1);
 		title = bmpfn.Mid(bmpfn.ReverseFind('/')+1);
 
 		// E1, E2, P, Bg
@@ -2203,7 +2201,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 
 		if (memcmp(pc, c, sizeof(c))) {
 			memcpy(pc, c, sizeof(c));
-			str.Format(_T("Color\t (%d %d %d %d)\n"), c[0], c[1], c[2], c[3]);
+			str.Format(L"Color\t (%d %d %d %d)\n", c[0], c[1], c[2], c[3]);
 			f.WriteString(str);
 		}
 
@@ -2212,7 +2210,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 
 		if (memcmp(pa, a, sizeof(a))) {
 			memcpy(pa, a, sizeof(a));
-			str.Format(_T("Contrast (%d %d %d %d)\n"), a[0], a[1], a[2], a[3]);
+			str.Format(L"Contrast (%d %d %d %d)\n", a[0], a[1], a[2], a[3]);
 			f.WriteString(str);
 		}
 
@@ -2247,7 +2245,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 			}
 		}
 
-		if (i < sp.GetCount()-1) {
+		if (i < sp.size()-1) {
 			int t3 = (int)sp[i+1].start;
 			int h3 = t3/1000/60/60, m3 = (t3/1000/60)%60, s3 = (t3/1000)%60;
 			int f3 = (int)((m_size.cy==480?29.97:25)*(t3%1000)/1000);
@@ -2275,7 +2273,7 @@ bool CVobSubFile::SaveMaestro(CString fn)
 			continue;
 		}
 
-		str.Format(_T("%04u\t%02d:%02d:%02d:%02d\t%02d:%02d:%02d:%02d\t%s\n"),
+		str.Format(L"%04u\t%02d:%02d:%02d:%02d\t%02d:%02d:%02d:%02d\t%s\n",
 				   ++k,
 				   h1, m1, s1, f1,
 				   h2, m2, s2, f2,
@@ -2320,76 +2318,76 @@ void CVobSubStream::Open(CString name, BYTE* pData, int len)
 	m_name = name;
 
 	CAtlList<CString> lines;
-	Explode(CString(CStringA((CHAR*)pData, len)), lines, '\n');
+	Explode(CString(CStringA((CHAR*)pData, len)), lines, L'\n');
 	while (lines.GetCount()) {
 		CAtlList<CString> sl;
-		Explode(lines.RemoveHead(), sl, ':', 2);
+		Explode(lines.RemoveHead(), sl, L':', 2);
 		if (sl.GetCount() != 2) {
 			continue;
 		}
 		CString key = sl.GetHead();
 		CString value = sl.GetTail();
-		if (key == _T("size")) {
-			_stscanf_s(value, _T("%dx %d"), &m_size.cx, &m_size.cy);
-		} else if (key == _T("org")) {
-			_stscanf_s(value, _T("%d, %d"), &m_org.x, &m_org.y);
-		} else if (key == _T("scale")) {
-			_stscanf_s(value, _T("%d%%, %d%%"), &m_scale_x, &m_scale_y);
-		} else if (key == _T("alpha")) {
-			_stscanf_s(value, _T("%d%%"), &m_alpha);
-		} else if (key == _T("smooth"))
+		if (key == L"size") {
+			swscanf_s(value, L"%dx %d", &m_size.cx, &m_size.cy);
+		} else if (key == L"org") {
+			swscanf_s(value, L"%d, %d", &m_org.x, &m_org.y);
+		} else if (key == L"scale") {
+			swscanf_s(value, L"%d%%, %d%%", &m_scale_x, &m_scale_y);
+		} else if (key == L"alpha") {
+			swscanf_s(value, L"%d%%", &m_alpha);
+		} else if (key == L"smooth")
 			m_fSmooth =
-				value == _T("0") || value == _T("OFF") ? 0 :
-				value == _T("1") || value == _T("ON") ? 1 :
-				value == _T("2") || value == _T("OLD") ? 2 :
+				value == L"0" || value == L"OFF" ? 0 :
+				value == L"1" || value == L"ON" ? 1 :
+				value == L"2" || value == L"OLD" ? 2 :
 				0;
-		else if (key == _T("align")) {
-			Explode(value, sl, ' ');
+		else if (key == L"align") {
+			Explode(value, sl, L' ');
 			if (sl.GetCount() == 4) {
 				sl.RemoveAt(sl.FindIndex(1));
 			}
 			if (sl.GetCount() == 3) {
-				m_fAlign = sl.RemoveHead() == _T("ON");
+				m_fAlign = sl.RemoveHead() == L"ON";
 				CString hor = sl.GetHead(), ver = sl.GetTail();
-				m_alignhor = hor == _T("LEFT") ? 0 : hor == _T("RIGHT")  ? 2 : 1;
-				m_alignver = ver == _T("TOP")  ? 0 : ver == _T("BOTTOM") ? 2 : 1;
+				m_alignhor = hor == L"LEFT" ? 0 : hor == L"RIGHT"  ? 2 : 1;
+				m_alignver = ver == L"TOP"  ? 0 : ver == L"BOTTOM" ? 2 : 1;
 			}
-		} else if (key == _T("fade in/out")) {
-			_stscanf_s(value, _T("%d%%, %d%%"), &m_fadein, &m_fadeout);
-		} else if (key == _T("fadein/out")) {
-			_stscanf_s(value, _T("%d, %d"), &m_fadein, &m_fadeout);
-		} else if (key == _T("time offset")) {
-			m_toff = _tcstol(value, NULL, 10);
-		} else if (key == _T("forced subs")) {
-			m_fOnlyShowForcedSubs = value == _T("1") || value == _T("ON");
-		} else if (key == _T("palette")) {
-			Explode(value, sl, ',', 16);
+		} else if (key == L"fade in/out") {
+			swscanf_s(value, L"%d%%, %d%%", &m_fadein, &m_fadeout);
+		} else if (key == L"fadein/out") {
+			swscanf_s(value, L"%d, %d", &m_fadein, &m_fadeout);
+		} else if (key == L"time offset") {
+			m_toff = wcstol(value, NULL, 10);
+		} else if (key == L"forced subs") {
+			m_fOnlyShowForcedSubs = value == L"1" || value == L"ON";
+		} else if (key == L"palette") {
+			Explode(value, sl, L',', 16);
 			for (size_t i = 0; i < 16 && sl.GetCount(); i++) {
-				GETDWORD(&m_orgpal[i]) = _tcstol(sl.RemoveHead(), NULL, 16);
+				GETU32(&m_orgpal[i]) = wcstol(sl.RemoveHead(), NULL, 16);
 			}
-		} else if (key == _T("custom colors")) {
-			m_fCustomPal = Explode(value, sl, ',', 3) == _T("ON");
+		} else if (key == L"custom colors") {
+			m_fCustomPal = Explode(value, sl, L',', 3) == L"ON";
 			if (sl.GetCount() == 3) {
 				sl.RemoveHead();
 				CAtlList<CString> tridx, colors;
-				Explode(sl.RemoveHead(), tridx, ':', 2);
+				Explode(sl.RemoveHead(), tridx, L':', 2);
 
 				int _tridx = 1;
-				if (tridx.RemoveHead() == _T("tridx")) {
-					TCHAR tr[4];
-					_stscanf_s(tridx.RemoveHead(), _T("%c%c%c%c"), &tr[0], sizeof(TCHAR),
-							   &tr[1], sizeof(TCHAR), &tr[2], sizeof(TCHAR), &tr[3], sizeof(TCHAR));
+				if (tridx.RemoveHead() == L"tridx") {
+					WCHAR tr[4];
+					swscanf_s(tridx.RemoveHead(), L"%c%c%c%c", &tr[0], sizeof(WCHAR),
+							   &tr[1], sizeof(WCHAR), &tr[2], sizeof(WCHAR), &tr[3], sizeof(WCHAR));
 					for (size_t i = 0; i < 4; i++) {
 						_tridx |= ((tr[i]=='1')?1:0)<<i;
 					}
 				}
-				Explode(sl.RemoveHead(), colors, ':', 2);
-				if (colors.RemoveHead() == _T("colors")) {
-					Explode(colors.RemoveHead(), colors, ',', 4);
+				Explode(sl.RemoveHead(), colors, L':', 2);
+				if (colors.RemoveHead() == L"colors") {
+					Explode(colors.RemoveHead(), colors, L',', 4);
 
 					RGBQUAD pal[4];
 					for (size_t i = 0; i < 4 && colors.GetCount(); i++) {
-						GETDWORD(&pal[i]) = _tcstol(colors.RemoveHead(), NULL, 16);
+						GETU32(&pal[i]) = wcstol(colors.RemoveHead(), NULL, 16);
 					}
 
 					SetCustomPal(pal, _tridx);
@@ -2439,9 +2437,9 @@ void CVobSubStream::Add(REFERENCE_TIME tStart, REFERENCE_TIME tStop, BYTE* pData
 	// We can only render one subpicture at a time, thus if there is overlap
 	// we have to fix it. tStop = tStart seems to work.
 	if (m_subpics.GetCount() && m_subpics.GetTail()->tStop > p->tStart) {
-		TRACE(_T("[CVobSubStream::Add] Vobsub timestamp overlap detected! ")
-	          _T("Subpicture #%d, StopTime %I64d > %I64d (Next StartTime), making them equal!\n"),
-	          m_subpics.GetCount(), m_subpics.GetTail()->tStop, p->tStart);
+		DLog(L"[CVobSubStream::Add] Vobsub timestamp overlap detected!"
+			 L"Subpicture #%d, StopTime %I64d > %I64d (Next StartTime), making them equal!",
+			 m_subpics.GetCount(), m_subpics.GetTail()->tStop, p->tStart);
 		m_subpics.GetTail()->tStop = p->tStart;
 	}
 

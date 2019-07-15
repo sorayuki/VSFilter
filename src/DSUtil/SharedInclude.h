@@ -20,17 +20,11 @@
 
 #pragma once
 
-#pragma warning(disable:4244)
-#pragma warning(disable:4995)
 #ifdef _WIN64
-	#pragma warning(disable:4267)
+	#pragma warning(disable:4267) // hide warning C4267: conversion from 'size_t' to 'type', possible loss of data
 #endif
 
 #ifdef _DEBUG
-	// Remove this if you want to see all the "unsafe" functions used
-	// For Release builds _CRT_SECURE_NO_WARNINGS is defined
-	#pragma warning(disable:4996)
-
 	#define _CRTDBG_MAP_ALLOC // include Microsoft memory leak detection procedures
 	#include <crtdbg.h>
 	#define DNew DEBUG_NEW

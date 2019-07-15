@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2015 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -22,10 +22,12 @@
 #pragma once
 
 #include <atlcoll.h>
+#include <list>
 
 template<class T, typename SEP>
-T Explode(const T& str, CAtlList<T>& sl, SEP sep, size_t limit = 0)
+T Explode(const T& str, CAtlList<T>& sl, const SEP sep, const size_t limit = 0)
 {
+	static_assert(sizeof(SEP) <= 2); // SEP must be char or wchar_t
 	sl.RemoveAll();
 
 	for (int i = 0, j = 0; ; i = j+1) {
@@ -43,27 +45,46 @@ T Explode(const T& str, CAtlList<T>& sl, SEP sep, size_t limit = 0)
 }
 
 template<class T, typename SEP>
-T ExplodeMin(const T& str, CAtlList<T>& sl, SEP sep, size_t limit = 0)
+T Explode(const T& str, std::list<T>& sl, const SEP sep, const size_t limit = 0)
 {
-	Explode(str, sl, sep, limit);
-	POSITION pos = sl.GetHeadPosition();
-	while (pos) {
-		POSITION tmp = pos;
-		if (sl.GetNext(pos).IsEmpty()) {
-			sl.RemoveAt(tmp);
+	sl.clear();
+	const int sep_len = T(sep).GetLength();
+	for (int i = 0, j = 0; ; i = j + sep_len) {
+		j = str.Find(sep, i);
+
+		if (j < 0 || sl.size() == limit - 1) {
+			sl.push_back(str.Mid(i).Trim());
+			break;
+		} else {
+			sl.push_back(str.Mid(i, j - i).Trim());
 		}
 	}
-	if (sl.IsEmpty()) {
-		sl.AddTail(T());    // eh
-	}
 
-	return sl.GetHead();
+	return sl.front();
 }
 
 template<class T, typename SEP>
-T ExplodeEsc(T str, CAtlList<T>& sl, SEP sep, size_t limit = 0, SEP esc = _T('\\'))
+T ExplodeMin(const T& str, std::list<T>& sl, const SEP sep, const size_t limit = 0)
 {
-	sl.RemoveAll();
+	Explode(str, sl, sep, limit);
+	for (auto it = sl.cbegin(); it != sl.cend(); ) {
+		if ((*it).IsEmpty()) {
+			sl.erase(it++);
+		} else {
+			it++;
+		}
+	}
+	if (sl.empty()) {
+		sl.push_back(T());    // eh
+	}
+
+	return sl.front();
+}
+
+template<class T, typename SEP>
+T ExplodeEsc(T str,std::list<T>& sl, SEP sep, size_t limit = 0, SEP esc = '\\')
+{
+	sl.clear();
 
 	int split = 0;
 	for (int i = 0, j = 0; ; i = j + 1) {
@@ -79,26 +100,26 @@ T ExplodeEsc(T str, CAtlList<T>& sl, SEP sep, size_t limit = 0, SEP esc = _T('\\
 			continue;
 		}
 
-		if (sl.GetCount() < limit - 1) {
-			sl.AddTail(str.Mid(split, j - split).Trim());
+		if (sl.size() < limit - 1) {
+			sl.push_back(str.Mid(split, j - split).Trim());
 
 			// Save new splitting position
 			split = j + 1;
 		}
 	}
-	sl.AddTail(str.Mid(split).Trim());
+	sl.push_back(str.Mid(split).Trim());
 
-	return sl.GetHead();
+	return sl.front();
 }
 
 template<class T, typename SEP>
-T Implode(const CAtlList<T>& sl, SEP sep)
+T Implode(const std::list<T>& sl, const SEP sep)
 {
 	T ret;
-	POSITION pos = sl.GetHeadPosition();
-	while (pos) {
-		ret += sl.GetNext(pos);
-		if (pos) {
+	auto it = sl.begin();
+	while (it != sl.end()) {
+		ret += *it++;
+		if (it != sl.end()) {
 			ret += sep;
 		}
 	}
@@ -106,44 +127,53 @@ T Implode(const CAtlList<T>& sl, SEP sep)
 }
 
 template<class T, typename SEP>
-T ImplodeEsc(const CAtlList<T>& sl, SEP sep, SEP esc = _T('\\'))
+T ImplodeEsc(const std::list<T>& sl, const SEP sep, const SEP esc = '\\')
 {
 	T ret;
 	T escsep = T(esc) + T(sep);
-	POSITION pos = sl.GetHeadPosition();
-	while (pos) {
-		T str = sl.GetNext(pos);
+	auto it = sl.begin();
+	while (it != sl.end()) {
+		T str = *it++;
 		str.Replace(T(sep), escsep);
 		ret += str;
-		if (pos) {
+		if (it != sl.end()) {
 			ret += sep;
 		}
 	}
 	return ret;
 }
 
-extern CString ExtractTag(CString tag, CMapStringToString& attribs, bool& fClosing);
+extern DWORD    CharSetToCodePage(DWORD dwCharSet);
 extern CStringA ConvertMBCS(CStringA str, DWORD SrcCharSet, DWORD DstCharSet);
 extern CStringA UrlEncode(CStringA str_in, bool fArg = false);
 extern CStringA UrlDecode(CStringA str_in);
+extern CString  ExtractTag(CString tag, CMapStringToString& attribs, bool& fClosing);
 extern CStringA HtmlSpecialChars(CStringA str, bool bQuotes = false);
-extern DWORD CharSetToCodePage(DWORD dwCharSet);
-extern CAtlList<CString>& MakeLower(CAtlList<CString>& sl);
-extern CAtlList<CString>& MakeUpper(CAtlList<CString>& sl);
 
-void FixFilename(CString& str);
+extern CStringA WStrToUTF8(LPCWSTR lpWideCharStr);
+
+extern CStringW ConvertToWStr(LPCSTR lpMultiByteStr, UINT CodePage);
+extern CStringW UTF8ToWStr(LPCSTR lpUTF8Str);
+extern CStringW AltUTF8ToWStr(LPCSTR lpUTF8Str);
+extern CStringW UTF8orLocalToWStr(LPCSTR lpMultiByteStr);
+
+void FixFilename(CStringW& str);
+void EllipsisURL(CStringW& url, const int maxlen);
+void EllipsisPath(CStringW& path, const int maxlen);
 
 CString FormatNumber(CString szNumber, bool bNoFractionalDigits = true);
+
+CStringW FourccToWStr(uint32_t fourcc);
 
 template<class T>
 T& FastTrimRight(T& str)
 {
 	if (!str.IsEmpty()) {
-		T::PCXSTR szStart	= str;
-		T::PCXSTR szEnd		= szStart + str.GetLength() - 1;
-		T::PCXSTR szCur		= szEnd;
+		T::PCXSTR szStart = str;
+		T::PCXSTR szEnd   = szStart + str.GetLength() - 1;
+		T::PCXSTR szCur   = szEnd;
 		for (; szCur >= szStart; szCur--) {
-			if (!T::StrTraits::IsSpace(*szCur)) {
+			if (!T::StrTraits::IsSpace(*szCur) || *szCur == 133) { // allow ellipsis character
 				break;
 			}
 		}

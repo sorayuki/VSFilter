@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <atlcoll.h>
 #include <BaseClasses/streams.h>
 
 class CNullRenderer : public CBaseRenderer
@@ -30,7 +29,7 @@ protected:
 	virtual HRESULT DoRenderSample(IMediaSample* pSample) { return S_OK; }
 
 public:
-	CNullRenderer(REFCLSID clsid, TCHAR* pName, LPUNKNOWN pUnk, HRESULT* phr);
+	CNullRenderer(REFCLSID clsid, WCHAR* pName, LPUNKNOWN pUnk, HRESULT* phr);
 };
 
 class __declspec(uuid("579883A0-4E2D-481F-9436-467AAFAB7DE8"))
@@ -47,7 +46,10 @@ public:
 class __declspec(uuid("DD9ED57D-6ABF-42E8-89A2-11D04798DC58"))
 	CNullUVideoRenderer : public CNullRenderer
 {
+	CMediaType m_mt;
+
 protected:
+	HRESULT SetMediaType(const CMediaType *pmt) override;
 	HRESULT CheckMediaType(const CMediaType* pmt);
 
 public:
@@ -83,7 +85,7 @@ class __declspec(uuid("655D7613-C26C-4A25-BBBD-3C9C516122CC"))
 	{
 	public:
 		CTextInputPin(CBaseFilter* pFilter, CCritSec* pLock, HRESULT* phr)
-			: CBaseInputPin(NAME("CTextInputPin"), pFilter, pLock, phr, L"In") {}
+			: CBaseInputPin(L"CTextInputPin", pFilter, pLock, phr, L"In") {}
 		HRESULT CheckMediaType(const CMediaType* pmt);
 	};
 
@@ -92,5 +94,5 @@ class __declspec(uuid("655D7613-C26C-4A25-BBBD-3C9C516122CC"))
 public:
 	CNullTextRenderer(LPUNKNOWN pUnk, HRESULT* phr);
 	int GetPinCount() { return (int)!!m_pInput; }
-	CBasePin* GetPin(int n) { return n == 0 ? (CBasePin*)m_pInput : NULL; }
+	CBasePin* GetPin(int n) { return n == 0 ? (CBasePin*)m_pInput : nullptr; }
 };

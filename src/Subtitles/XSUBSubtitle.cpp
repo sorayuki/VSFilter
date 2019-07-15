@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -98,6 +98,8 @@ STDMETHODIMP CXSUBSubtitle::Render(SubPicDesc& spd, REFERENCE_TIME rt, double fp
 	bbox.right	= 0;
 	bbox.bottom	= 0;
 
+	HRESULT hr = E_FAIL;
+
 	POSITION pos = m_pObjects.GetHeadPosition();
 	while (pos) {
 		CompositionObject* pObject = m_pObjects.GetAt (pos);
@@ -109,29 +111,31 @@ STDMETHODIMP CXSUBSubtitle::Render(SubPicDesc& spd, REFERENCE_TIME rt, double fp
 			int delta_y = (m_size.cy - (pObject->m_vertical_position + pObject->m_height)) * spd.h/m_size.cy;
 
 			if (spd.w < (pObject->m_horizontal_position + pObject->m_width)) {
-				pObject->m_horizontal_position = max(0, spd.w - pObject->m_width - delta_x);
+				pObject->m_horizontal_position = std::max(0, spd.w - pObject->m_width - delta_x);
 			}
 
 			if (spd.h < (pObject->m_vertical_position + pObject->m_height)) {
-				pObject->m_vertical_position = max(0, spd.h - pObject->m_height - delta_y);
+				pObject->m_vertical_position = std::max(0, spd.h - pObject->m_height - delta_y);
 			}
 
 			if (pObject->GetRLEDataSize() && pObject->m_width > 0 && pObject->m_height > 0 &&
 					spd.w >= (pObject->m_horizontal_position + pObject->m_width) &&
 					spd.h >= (pObject->m_vertical_position + pObject->m_height)) {
 
-				bbox.left	= min(pObject->m_horizontal_position, bbox.left);
-				bbox.top	= min(pObject->m_vertical_position, bbox.top);
-				bbox.right	= max(pObject->m_horizontal_position + pObject->m_width, bbox.right);
-				bbox.bottom	= max(pObject->m_vertical_position + pObject->m_height, bbox.bottom);
+				bbox.left   = std::min((LONG)pObject->m_horizontal_position, bbox.left);
+				bbox.top    = std::min((LONG)pObject->m_vertical_position, bbox.top);
+				bbox.right  = std::max((LONG)pObject->m_horizontal_position + pObject->m_width, bbox.right);
+				bbox.bottom = std::max((LONG)pObject->m_vertical_position + pObject->m_height, bbox.bottom);
 
 				ASSERT(spd.h>=0);
-				bbox.left	= bbox.left > 0 ? bbox.left : 0;
-				bbox.top	= bbox.top > 0 ? bbox.top : 0;
-				bbox.right	= bbox.right < spd.w ? bbox.right : spd.w;
-				bbox.bottom	= bbox.bottom < spd.h ? bbox.bottom : spd.h;
+				bbox.left   = bbox.left > 0 ? bbox.left : 0;
+				bbox.top    = bbox.top > 0 ? bbox.top : 0;
+				bbox.right  = bbox.right < spd.w ? bbox.right : spd.w;
+				bbox.bottom = bbox.bottom < spd.h ? bbox.bottom : spd.h;
 
 				pObject->RenderXSUB(spd);
+
+				hr = S_OK;
 			}
 		}
 
@@ -140,7 +144,7 @@ STDMETHODIMP CXSUBSubtitle::Render(SubPicDesc& spd, REFERENCE_TIME rt, double fp
 
 	CleanOld(rt - 60*10000000i64);
 
-	return S_OK;
+	return hr;
 }
 
 STDMETHODIMP CXSUBSubtitle::GetTextureSize (POSITION pos, SIZE& MaxTextureSize, SIZE& VideoSize, POINT& VideoTopLeft)
@@ -207,21 +211,13 @@ STDMETHODIMP CXSUBSubtitle::Reload()
 	return S_OK;
 }
 
-HRESULT CXSUBSubtitle::ParseSample (IMediaSample* pSample)
+HRESULT CXSUBSubtitle::ParseSample(BYTE* pData, long nLen)
 {
 	CAutoLock cAutoLock(&m_csCritSec);
-	HRESULT		hr = E_FAIL;
 
-	CheckPointer (pSample, E_POINTER);
-	BYTE*	pData = NULL;
-	int		lSampleLen;
+	CheckPointer(pData, E_POINTER);
 
-	hr = pSample->GetPointer(&pData);
-	if (FAILED(hr) || pData == NULL) {
-		return hr;
-	}
-	lSampleLen = pSample->GetActualDataLength();
-	if (lSampleLen < (27 + 7 * 2 + 4 * 3)) {
+	if (nLen < (27 + 7 * 2 + 4 * 3)) {
 		return E_FAIL;
 	}
 
@@ -229,10 +225,8 @@ HRESULT CXSUBSubtitle::ParseSample (IMediaSample* pSample)
 		return E_FAIL;
 	}
 
-	REFERENCE_TIME rtStart = INVALID_TIME, rtStop = INVALID_TIME;
-	CString tmp((char*)pData, 26);
-	rtStart	= StringToReftime(tmp.Mid(1, 12));
-	rtStop	= StringToReftime(tmp.Mid(14, 12));
+	REFERENCE_TIME rtStart	= StringToReftime(CString((char*)pData + 1, 12));
+	REFERENCE_TIME rtStop	= StringToReftime(CString((char*)pData + 14, 12));
 
 	if (rtStop <= rtStart) {
 		return E_FAIL;
@@ -242,7 +236,7 @@ HRESULT CXSUBSubtitle::ParseSample (IMediaSample* pSample)
 	pSub->m_rtStart	= rtStart;
 	pSub->m_rtStop	= rtStop;
 
-	CGolombBuffer gb(pData + 27, lSampleLen - 27);
+	CGolombBuffer gb(pData + 27, nLen - 27);
 	pSub->m_width				= gb.ReadShortLE();
 	pSub->m_height				= gb.ReadShortLE();
 	pSub->m_horizontal_position	= gb.ReadShortLE();
@@ -254,7 +248,7 @@ HRESULT CXSUBSubtitle::ParseSample (IMediaSample* pSample)
 	gb.ReadShortLE();
 	// Palette, 4 color entries
 	HDMV_PALETTE Palette[4];
-	for (int entry=0; entry < 4; entry++) {
+	for (int entry = 0; entry < 4; entry++) {
 		Palette[entry].entry_id	= entry;
 		Palette[entry].Y	= gb.ReadByte();	// red
 		Palette[entry].Cr	= gb.ReadByte();	// green
@@ -264,16 +258,14 @@ HRESULT CXSUBSubtitle::ParseSample (IMediaSample* pSample)
 		}
 	}
 
-	pSub->SetPalette(4, Palette, false, true);
+	pSub->SetPalette(4, Palette, false, ColorConvert::convertType::DEFAULT, true);
 
 	int RLESize = gb.GetSize() - gb.GetPos();
 	pSub->SetRLEData(gb.GetBufferPos(), RLESize, RLESize);
 
 	m_pObjects.AddTail(pSub);
 
-	hr = S_OK;
-
-	return hr;
+	return S_OK;
 }
 
 HRESULT CXSUBSubtitle::NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, double dRate)

@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2018 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,23 +21,28 @@
 #pragma once
 
 #include "CompositionObject.h"
+#include "../DSUtil/ResampleRGB32.h"
 
 class CBaseSub
 {
+	CResampleRGB32 m_resample;
+
 public:
 	CBaseSub(SUBTITLE_TYPE nType);
 	virtual ~CBaseSub();
 
-	virtual HRESULT			ParseSample (IMediaSample* pSample) PURE;
+	virtual HRESULT			ParseSample(BYTE* pData, long nLen, REFERENCE_TIME rtStart, REFERENCE_TIME rtStop) PURE;
 	virtual void			Reset() PURE;
 	virtual POSITION		GetStartPosition(REFERENCE_TIME rt, double fps, bool CleanOld = false) PURE;
 	virtual POSITION		GetNext(POSITION pos) PURE;
 	virtual REFERENCE_TIME	GetStart(POSITION nPos) PURE;
 	virtual REFERENCE_TIME	GetStop(POSITION nPos)  PURE;
-	virtual void			Render(SubPicDesc& spd, REFERENCE_TIME rt, RECT& bbox) PURE;
+	virtual HRESULT			Render(SubPicDesc& spd, REFERENCE_TIME rt, RECT& bbox) PURE;
 	virtual HRESULT			GetTextureSize (POSITION pos, SIZE& MaxTextureSize, SIZE& VideoSize, POINT& VideoTopLeft) PURE;
 	virtual void			CleanOld(REFERENCE_TIME rt) PURE;
-	virtual HRESULT			EndOfStream() PURE;
+	virtual HRESULT			EndOfStream() { return S_OK; }
+
+	HRESULT					SetConvertType(CString _yuvMatrix, ColorConvert::convertType _convertType) { yuvMatrix = _yuvMatrix; convertType = _convertType; return S_OK; };
 
 protected :
 	SUBTITLE_TYPE			m_nType;
@@ -49,4 +54,7 @@ protected :
 
 	void					InitSpd(SubPicDesc& spd, int nWidth, int nHeight);
 	void					FinalizeRender(SubPicDesc& spd);
+
+	CString						yuvMatrix;
+	ColorConvert::convertType	convertType;
 };

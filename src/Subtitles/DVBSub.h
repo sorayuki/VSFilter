@@ -1,5 +1,5 @@
 /*
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -30,8 +30,8 @@ public:
 	CDVBSub();
 	~CDVBSub();
 
-	virtual HRESULT			ParseSample (IMediaSample* pSample);
-	virtual void			Render(SubPicDesc& spd, REFERENCE_TIME rt, RECT& bbox);
+	virtual HRESULT			ParseSample(BYTE* pData, long nLen, REFERENCE_TIME rtStart, REFERENCE_TIME rtStop);
+	virtual HRESULT			Render(SubPicDesc& spd, REFERENCE_TIME rt, RECT& bbox);
 	virtual HRESULT			GetTextureSize (POSITION pos, SIZE& MaxTextureSize, SIZE& VideoSize, POINT& VideoTopLeft);
 	virtual POSITION		GetStartPosition(REFERENCE_TIME rt, double fps, bool CleanOld = false);
 	virtual POSITION		GetNext(POSITION pos);
@@ -189,8 +189,6 @@ private:
 	int					m_nBufferReadPos	= 0;
 	int					m_nBufferWritePos	= 0;
 	BYTE*				m_pBuffer			= NULL;
-	REFERENCE_TIME		m_rtStart			= 0;
-	REFERENCE_TIME		m_rtStop			= 0;
 	CAtlList<DVB_PAGE*>	m_pages;
 	CAutoPtr<DVB_PAGE>	m_pCurrentPage;
 	DVB_DISPLAY			m_Display;

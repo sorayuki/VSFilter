@@ -1,5 +1,5 @@
 /*
- * (C) 2016 see Authors.txt
+ * (C) 2016-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -42,9 +42,9 @@ protected:
 	HANDLE m_hRequestCompleteEvent = INVALID_HANDLE_VALUE;
 	BOOL m_bRequestComplete        = TRUE;
 
-	HINTERNET m_hInstance = NULL;
-	HINTERNET m_hConnect  = NULL;
-	HINTERNET m_hRequest  = NULL;
+	HINTERNET m_hInstance = nullptr;
+	HINTERNET m_hConnect  = nullptr;
+	HINTERNET m_hRequest  = nullptr;
 
 	CUrl m_url;
 	CString m_url_str;
@@ -73,8 +73,8 @@ public:
 
 	void Close();
 
-	HRESULT Connect(LPCTSTR lpszURL, DWORD dwTimeOut = INFINITE, LPCTSTR lpszAgent = L"MPC-BE", BOOL bSendRequest = TRUE);
-	HRESULT SendRequest(LPCTSTR customHeader = L"", DWORD dwTimeOut = INFINITE);
+	HRESULT Connect(LPCWSTR lpszURL, DWORD dwTimeOut = INFINITE, LPCWSTR lpszCustomHeader = L"");
+	HRESULT SendRequest(LPCWSTR lpszCustomHeader = L"", DWORD dwTimeOut = INFINITE);
 	HRESULT Read(PBYTE pBuffer, DWORD dwSizeToRead, LPDWORD dwSizeRead, DWORD dwTimeOut = INFINITE);
 
 	CString GetHeader() const;

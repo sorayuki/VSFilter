@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2014 see Authors.txt
+ * (C) 2006-2017 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -71,14 +71,23 @@ struct WAVEFORMATEX_HDMV_LPCM : public WAVEFORMATEX {
 	}
 };
 
+#pragma pack(push, 1)
+struct DVDALPCMFORMAT
+{
+	WAVEFORMATEX wfe;
+	WORD  GroupAssignment;
+	DWORD nSamplesPerSec2;
+	WORD  wBitsPerSample2;
+};
+#pragma pack(pop)
+
 struct WAVEFORMATEXFFMPEG
 {
 	int nCodecId;
 	WAVEFORMATEX wfex;
 
-	struct WAVEFORMATEXFFMPEG()
-	{
-		nCodecId = 0;
+	struct WAVEFORMATEXFFMPEG() {
+		memset(this, 0, sizeof(*this));
 	}
 };
 
@@ -99,4 +108,23 @@ struct fraction_t {
 struct SyncPoint {
 	REFERENCE_TIME rt;
 	__int64 fp;
+};
+
+struct ColorSpace {
+	BYTE MatrixCoefficients;
+	BYTE Primaries;
+	BYTE Range;
+	BYTE TransferCharacteristics;
+	BYTE ChromaLocation;
+};
+
+// A byte that is not initialized to std::vector when using the resize method.
+struct NoInitByte
+{
+	uint8_t value;
+	NoInitByte() {
+		// do nothing
+		static_assert(sizeof(*this) == sizeof (value), "invalid size");
+		//static_assert(__alignof(*this) == __alignof(value), "invalid alignment");
+	}
 };

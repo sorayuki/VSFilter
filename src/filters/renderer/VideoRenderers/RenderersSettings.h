@@ -1,6 +1,6 @@
 /*
  * (C) 2003-2006 Gabest
- * (C) 2006-2016 see Authors.txt
+ * (C) 2006-2019 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -21,165 +21,186 @@
 
 #pragma once
 
+#include "Version.h"
+
 #define WM_MYMOUSELAST WM_XBUTTONDBLCLK
-#define ENABLE_2PASS_RESIZE 0
-#define DXVAVP 1
+#define DXVA2VP 1
+#define DXVAHDVP 1
 
 #define RS_EVRBUFFERS_MIN	4
 #define RS_EVRBUFFERS_DEF	5
-#define RS_EVRBUFFERS_MAX	60
+#define RS_EVRBUFFERS_MAX	30
 #define RS_SPCSIZE_MIN		0
 #define RS_SPCSIZE_DEF		10
 #define RS_SPCSIZE_MAX		60
 
+enum : int {
+	VIDRNDT_SYSDEFAULT = 0,
+	VIDRNDT_VMR9WINDOWED,
+	VIDRNDT_EVR,
+	VIDRNDT_EVR_CUSTOM,
+	VIDRNDT_SYNC,
+	VIDRNDT_RESERVED,
+	VIDRNDT_DXR,
+	VIDRNDT_MADVR,
+	VIDRNDT_NULL_ANY = 10,
+	VIDRNDT_NULL_UNCOMP,
+	VIDRNDT_MPCVR = 20,
+};
 
 enum {
-	WM_REARRANGERENDERLESS = WM_APP+1,
+	WM_RESIZE_DEVICE = WM_APP + 1,
 	WM_RESET_DEVICE,
 };
 
-enum {
-	SURFACE_OFFSCREEN,
-	SURFACE_TEXTURE2D,
-	SURFACE_TEXTURE3D,
-};
-
 enum :int {
-	RESIZER_UNKNOWN = -1,
 	RESIZER_NEAREST = 0,
 	RESIZER_BILINEAR,
 	RESIZER_DXVA2,
 	RESIZER_SHADER_BICUBIC06,
 	RESIZER_SHADER_BICUBIC08,
 	RESIZER_SHADER_BICUBIC10,
-	RESIZER_SHADER_SMOOTHERSTEP,
-	RESIZER_SHADER_BSPLINE4,
-	RESIZER_SHADER_MITCHELL4,
-	RESIZER_SHADER_CATMULL4,
+	RESIZER_SHADER_SMOOTHERSTEP, // no longer used
+	RESIZER_SHADER_BSPLINE,
+	RESIZER_SHADER_MITCHELL,
+	RESIZER_SHADER_CATMULL,
 	RESIZER_SHADER_LANCZOS2,
 	RESIZER_SHADER_LANCZOS3,
+	RESIZER_DXVAHD = 50,
 
-	RESIZER_SHADER_AVERAGE = 100, // for statistical purposes only. not for settings
+	DOWNSCALER_SIMPLE = 100,
+	DOWNSCALER_BOX,
+	DOWNSCALER_BILINEAR,
+	DOWNSCALER_HAMMING,
+	DOWNSCALER_BICUBIC,
+	DOWNSCALER_LANCZOS,
 };
 
 enum VideoSystem {
-	VIDEO_SYSTEM_UNKNOWN,
+	VIDEO_SYSTEM_UNKNOWN = 0,
 	VIDEO_SYSTEM_HDTV,
 	VIDEO_SYSTEM_SDTV_NTSC,
 	VIDEO_SYSTEM_SDTV_PAL,
 };
 
 enum AmbientLight {
-	AMBIENT_LIGHT_BRIGHT,
+	AMBIENT_LIGHT_BRIGHT = 0,
 	AMBIENT_LIGHT_DIM,
 	AMBIENT_LIGHT_DARK,
 };
 
 enum ColorRenderingIntent {
-	COLOR_RENDERING_INTENT_PERCEPTUAL,
+	COLOR_RENDERING_INTENT_PERCEPTUAL = 0,
 	COLOR_RENDERING_INTENT_RELATIVE_COLORIMETRIC,
 	COLOR_RENDERING_INTENT_SATURATION,
 	COLOR_RENDERING_INTENT_ABSOLUTE_COLORIMETRIC,
 };
 
 enum {
-	SYNCHRONIZE_NEAREST,
+	SYNCHRONIZE_NEAREST = 0,
 	SYNCHRONIZE_VIDEO,
 	SYNCHRONIZE_DISPLAY,
 };
 
 enum {
-	SUBPIC_STEREO_NONE,
+	SUBPIC_STEREO_NONE = 0,
 	SUBPIC_STEREO_SIDEBYSIDE,
 	SUBPIC_STEREO_TOPANDBOTTOM,
 };
 
+enum {
+	STEREO3D_AsIs = 0,
+	STEREO3D_HalfOverUnder_to_Interlace,
+};
+
 class CRenderersSettings
 {
-
 public:
-	bool bResetDevice;
+	int		iVideoRenderer;
 
-	// Subtitle position settings
-	int bSubpicPosRelative;
-	CPoint SubpicShiftPos;
+	// device
+	CString	sD3DRenderDevice;
+	bool	bResetDevice;
 
-	// Stereoscopic Subtitles
-	int iSubpicStereoMode;
-
-	class CAdvRendererSettings
-	{
-	public:
-		CAdvRendererSettings() {SetDefault();}
-
-		bool	bAlterativeVSync;
-		int		iVSyncOffset;
-		bool	bVSyncAccurate;
-		bool	bVSync;
-		bool	bColorManagementEnable;
-		int		iColorManagementInput;
-		int		iColorManagementAmbientLight;
-		int		iColorManagementIntent;
-		bool	bDisableDesktopComposition;
-		bool	bFlushGPUBeforeVSync;
-		bool	bFlushGPUAfterPresent;
-		bool	bFlushGPUWait;
-		int		iSurfaceFormat;
-		bool	b10BitOutput;
-
-		// EVR
-		bool	bEVRFrameTimeCorrection;
-		int		iEVROutputRange;
-
-		// SyncRenderer settings
-		int		iSynchronizeMode;
-		int		iLineDelta;
-		int		iColumnDelta;
-		double	dCycleDelta;
-		double	dTargetSyncOffset;
-		double	dControlLimit;
-
-		void SetDefault();
-	};
-
-	CAdvRendererSettings m_AdvRendSets;
-
-	int		iSurfaceType;
+	// surfaces and resizer
+	int		iPresentMode;
+	D3DFORMAT iSurfaceFormat;
+	bool	b10BitOutput;
 	int		iResizer;
+	int		iDownscaler;
+
+	// frame synchronization
+	bool	bVSync;
+	bool	bVSyncInternal;
+	bool	bDisableDesktopComposition;
+	bool	bEVRFrameTimeCorrection;
+	bool	bFlushGPUBeforeVSync;
+	bool	bFlushGPUAfterPresent;
+	bool	bFlushGPUWait;
+
+	// VMR
 	bool	bVMRMixerMode;
 	bool	bVMRMixerYUV;
 
+	// EVR
+	int		iEVROutputRange;
 	int		nEVRBuffers;
 
+	// SyncRenderer settings
+	int		iSynchronizeMode;
+	int		iLineDelta;
+	int		iColumnDelta;
+	double	dCycleDelta;
+	double	dTargetSyncOffset;
+	double	dControlLimit;
+
+	// color management
+	bool	bColorManagementEnable;
+	int		iColorManagementInput;
+	int		iColorManagementAmbientLight;
+	int		iColorManagementIntent;
+
+	// subtitles
+	int		iSubpicPosRelative; // not saved
+	CPoint	SubpicShiftPos;     // not saved
 	int		nSubpicCount;
 	int		iSubpicMaxTexWidth;
 	bool	bSubpicAnimationWhenBuffering;
 	bool	bSubpicAllowDrop;
+	int		iSubpicStereoMode;
 
-	CString	sD3DRenderDevice;
-	void	SaveRenderers();
-	void	LoadRenderers();
+	bool	bTearingTest;       // not saved
+	int		iDisplayStats;      // not saved
+	bool	bResetStats;        // not saved. Set to reset the presentation statistics
+	int		iStereo3DTransform; // not saved
+	bool	bStereo3DSwapLR;    // not saved
+
+	CRenderersSettings();
+
+	void	SetDefault();
+	void	Load();
+	void	Save();
 };
 
-class CRenderersData
+class CAffectingRenderersSettings // used in SettingsNeedResetDevice()
 {
-	HINSTANCE	m_hD3DX9Dll;
-	HINSTANCE	m_hD3DCompilerDll;
-
 public:
-	CRenderersData();
+	int iPresentMode                = 0;
+	D3DFORMAT iSurfaceFormat        = D3DFMT_X8R8G8B8;
+	bool b10BitOutput               = false;
+	bool bVSync                     = false;
+	bool bDisableDesktopComposition = false;
 
-	bool		m_bTearingTest;
-	int			m_iDisplayStats;
-	bool		m_bResetStats; // Set to reset the presentation statistics
-	CString		m_strD3DX9Version;
-
-	// Hardware feature support
-	bool		m_bFP16Support;
-	bool		m_b10bitSupport;
+	void Fill(CRenderersSettings& rs)
+	{
+		iPresentMode               = rs.iPresentMode;
+		iSurfaceFormat             = rs.iSurfaceFormat;
+		b10BitOutput               = rs.b10BitOutput;
+		bVSync                     = rs.bVSync;
+		bDisableDesktopComposition = rs.bDisableDesktopComposition;
+	}
 };
 
-extern CRenderersData*		GetRenderersData();
 extern CRenderersSettings&	GetRenderersSettings();
 
 extern bool LoadResource(UINT resid, CStringA& str, LPCTSTR restype);

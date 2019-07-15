@@ -10,8 +10,7 @@
 // This interface should be implemented in IMediaSample objects and accessed through IUnknown
 // It allows binary side data to be attached to the media samples and delivered with them
 // Restrictions: Only one side data per type can be attached
-[uuid("F940AE7F-48EB-4377-806C-8FC48CAB2292")]
-interface IMediaSideData : public IUnknown
+interface __declspec(uuid("F940AE7F-48EB-4377-806C-8FC48CAB2292")) IMediaSideData : public IUnknown
 {
   // Set the side data identified by guidType to the data provided
   // The provided data will be copied and stored internally
@@ -44,5 +43,41 @@ struct MediaSideDataHDR
   // luminance
   double max_display_mastering_luminance;
   double min_display_mastering_luminance;
+};
+#pragma pack(pop)
+
+// {ED6AE576-7CBE-41A6-9DC3-07C35DC13EF9}
+DEFINE_GUID(IID_MediaSideDataHDRContentLightLevel,
+  0xed6ae576, 0x7cbe, 0x41a6, 0x9d, 0xc3, 0x7, 0xc3, 0x5d, 0xc1, 0x3e, 0xf9);
+
+#pragma pack(push, 1)
+struct MediaSideDataHDRContentLightLevel
+{
+  // maximum content light level (cd/m2)
+  unsigned int MaxCLL;
+
+  // maximum frame average light level (cd/m2)
+  unsigned int MaxFALL;
+};
+#pragma pack(pop)
+
+// -----------------------------------------------------------------
+// 3D Plane Offset Side Data
+// -----------------------------------------------------------------
+
+// {F169B76C-75A3-49E6-A23A-14983EBF4370}
+DEFINE_GUID(IID_MediaSideData3DOffset,
+  0xf169b76c, 0x75a3, 0x49e6, 0xa2, 0x3a, 0x14, 0x98, 0x3e, 0xbf, 0x43, 0x70);
+
+#pragma pack(push, 1)
+struct MediaSideData3DOffset
+{
+  // Number of valid offsets (up to 32)
+  int offset_count;
+
+  // Offset Value, can be positive or negative
+  // positive values offset closer to the viewer (move right on the left view, left on the right view)
+  // negative values offset further away from the viewer (move left on the left view, right on the right view)
+  int offset[32];
 };
 #pragma pack(pop)

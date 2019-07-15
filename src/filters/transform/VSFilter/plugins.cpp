@@ -1076,8 +1076,8 @@ namespace Plugin
             const VSVideoInfo * vi;
             float fps;
             VFRTranslator * vfr;
-            CTextSubVapourSynthFilter * textsub;
-            CVobSubVapourSynthFilter * vobsub;
+            std::unique_ptr<CTextSubVapourSynthFilter> textsub;
+            std::unique_ptr<CVobSubVapourSynthFilter> vobsub;
         };
 
         static void VS_CC vsfilterInit(VSMap * in, VSMap * out, void ** instanceData, VSNode * node, VSCore * core, const VSAPI * vsapi) {
@@ -1184,12 +1184,7 @@ namespace Plugin
 
         static void VS_CC vsfilterFree(void * instanceData, VSCore * core, const VSAPI * vsapi) {
             VSFilterData * d = static_cast<VSFilterData *>(instanceData);
-
             vsapi->freeNode(d->node);
-
-            delete d->textsub;
-            delete d->vobsub;
-
             delete d;
         }
 
@@ -1228,16 +1223,14 @@ namespace Plugin
                     throw std::string{ ": variable framerate clip must have fps or vfr specified" };
 
                 if (filterName == "TextSub")
-                    d->textsub = new CTextSubVapourSynthFilter{ file.get(), charset, fps, &err };
+                    d->textsub = std::make_unique<CTextSubVapourSynthFilter>(file.get(), charset, fps, &err);
                 else
-                    d->vobsub = new CVobSubVapourSynthFilter{ file.get(), &err };
+                    d->vobsub = std::make_unique<CVobSubVapourSynthFilter>(file.get(), &err);
                 if (err)
                     throw std::string{ ": can't open " } + _file;
             } catch (const std::string & error) {
                 vsapi->setError(out, (filterName + error).c_str());
                 vsapi->freeNode(d->node);
-                delete d->textsub;
-                delete d->vobsub;
                 return;
             }
 

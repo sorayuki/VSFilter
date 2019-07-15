@@ -1059,14 +1059,14 @@ namespace Plugin
 
         class CTextSubVapourSynthFilter : public CTextSubFilter {
         public:
-            CTextSubVapourSynthFilter(const char * file, const int charset, const float fps, int * error) : CTextSubFilter(CString(file), charset, fps) {
+            CTextSubVapourSynthFilter(const wchar_t * file, const int charset, const float fps, int * error) : CTextSubFilter(CString(file), charset, fps) {
                 *error = !m_pSubPicProvider ? 1 : 0;
             }
         };
 
         class CVobSubVapourSynthFilter : public CVobSubFilter {
         public:
-            CVobSubVapourSynthFilter(const char * file, int * error) : CVobSubFilter(CString(file)) {
+            CVobSubVapourSynthFilter(const wchar_t * file, int * error) : CVobSubFilter(CString(file)) {
                 *error = !m_pSubPicProvider ? 1 : 0;
             }
         };
@@ -1206,7 +1206,10 @@ namespace Plugin
                     (d->vi->format->id != pfYUV420P8 && d->vi->format->id != pfRGB24))
                     throw std::string{ ": only constant format YUV420P8 and RGB24 input supported" };
 
-                const char * file = vsapi->propGetData(in, "file", 0, nullptr);
+                const char * _file = vsapi->propGetData(in, "file", 0, nullptr);
+                const int size = MultiByteToWideChar(CP_UTF8, 0, _file, -1, nullptr, 0);
+                std::unique_ptr<wchar_t[]> file = std::make_unique<wchar_t[]>(size);
+                MultiByteToWideChar(CP_UTF8, 0, _file, -1, file.get(), size);
 
                 int charset = int64ToIntS(vsapi->propGetInt(in, "charset", 0, &err));
                 if (err)
@@ -1225,11 +1228,11 @@ namespace Plugin
                     throw std::string{ ": variable framerate clip must have fps or vfr specified" };
 
                 if (filterName == "TextSub")
-                    d->textsub = new CTextSubVapourSynthFilter{ file, charset, fps, &err };
+                    d->textsub = new CTextSubVapourSynthFilter{ file.get(), charset, fps, &err };
                 else
-                    d->vobsub = new CVobSubVapourSynthFilter{ file, &err };
+                    d->vobsub = new CVobSubVapourSynthFilter{ file.get(), &err };
                 if (err)
-                    throw std::string{ ": can't open " } + file;
+                    throw std::string{ ": can't open " } + _file;
             } catch (const std::string & error) {
                 vsapi->setError(out, (filterName + error).c_str());
                 vsapi->freeNode(d->node);

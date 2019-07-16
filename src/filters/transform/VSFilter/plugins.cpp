@@ -1078,6 +1078,7 @@ namespace Plugin
             VFRTranslator * vfr;
             std::unique_ptr<CTextSubVapourSynthFilter> textsub;
             std::unique_ptr<CVobSubVapourSynthFilter> vobsub;
+            std::unique_ptr<uint16_t[]> buffer;
         };
 
         static void VS_CC vsfilterInit(VSMap * in, VSMap * out, void ** instanceData, VSNode * node, VSCore * core, const VSAPI * vsapi) {
@@ -1099,7 +1100,7 @@ namespace Plugin
                 subpic.w = d->vi->width;
                 subpic.h = d->vi->height;
 
-                if (d->vi->format->colorFamily == cmYUV) {
+                if (d->vi->format->id == pfYUV420P8) {
                     subpic.pitch = vsapi->getStride(dst, 0);
                     subpic.pitchUV = vsapi->getStride(dst, 1);
                     subpic.bits = vsapi->getWritePtr(dst, 0);
@@ -1107,6 +1108,32 @@ namespace Plugin
                     subpic.bitsV = vsapi->getWritePtr(dst, 2);
                     subpic.bpp = 8;
                     subpic.type = MSP_YV12;
+                } else if (d->vi->format->id == pfYUV420P16) {
+                    const int uvStride = vsapi->getStride(src, 1) / sizeof(uint16_t);
+                    const int bufStride = d->vi->width;
+                    const uint16_t * srcpY = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, 0));
+                    const uint16_t * srcpU = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, 1));
+                    const uint16_t * srcpV = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, 2));
+                    uint16_t * VS_RESTRICT buffer = d->buffer.get();
+
+                    vs_bitblt(buffer, d->vi->width * sizeof(uint16_t), srcpY, vsapi->getStride(src, 0), d->vi->width * sizeof(uint16_t), d->vi->height);
+                    buffer += bufStride * d->vi->height;
+
+                    for (int y = 0; y < vsapi->getFrameHeight(src, 1); y++) {
+                        for (int x = 0; x < vsapi->getFrameWidth(src, 1); x++) {
+                            buffer[x * 2 + 0] = srcpU[x];
+                            buffer[x * 2 + 1] = srcpV[x];
+                        }
+
+                        srcpU += uvStride;
+                        srcpV += uvStride;
+                        buffer += bufStride;
+                    }
+
+                    subpic.pitch = d->vi->width * sizeof(uint16_t);
+                    subpic.bits = d->buffer.get();
+                    subpic.bpp = 16;
+                    subpic.type = MSP_P016;
                 } else {
                     tmp = vsapi->newVideoFrame(vsapi->getFormatPreset(pfCompatBGR32, core), d->vi->width, d->vi->height, nullptr, core);
 
@@ -1150,7 +1177,28 @@ namespace Plugin
                 else
                     d->vobsub->Render(subpic, timestamp, d->fps);
 
-                if (d->vi->format->colorFamily == cmRGB) {
+                if (d->vi->format->id == pfYUV420P16) {
+                    const int bufStride = d->vi->width;
+                    const int uvStride = vsapi->getStride(dst, 1) / sizeof(uint16_t);
+                    const uint16_t * buffer = d->buffer.get();
+                    uint16_t * VS_RESTRICT dstpY = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(dst, 0));
+                    uint16_t * VS_RESTRICT dstpU = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(dst, 1));
+                    uint16_t * VS_RESTRICT dstpV = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(dst, 2));
+
+                    vs_bitblt(dstpY, vsapi->getStride(dst, 0), buffer, d->vi->width * sizeof(uint16_t), d->vi->width * sizeof(uint16_t), d->vi->height);
+                    buffer += bufStride * d->vi->height;
+
+                    for (int y = 0; y < vsapi->getFrameHeight(dst, 1); y++) {
+                        for (int x = 0; x < vsapi->getFrameWidth(dst, 1); x++) {
+                            dstpU[x] = buffer[x * 2 + 0];
+                            dstpV[x] = buffer[x * 2 + 1];
+                        }
+
+                        buffer += bufStride;
+                        dstpU += uvStride;
+                        dstpV += uvStride;
+                    }
+                } else if (d->vi->format->id == pfRGB24) {
                     const int tmpStride = vsapi->getStride(tmp, 0);
                     const int dstStride = vsapi->getStride(dst, 0);
                     const uint8_t * tmpp = vsapi->getReadPtr(tmp, 0);
@@ -1198,8 +1246,8 @@ namespace Plugin
 
             try {
                 if (!isConstantFormat(d->vi) ||
-                    (d->vi->format->id != pfYUV420P8 && d->vi->format->id != pfRGB24))
-                    throw std::string{ "only constant format YUV420P8 and RGB24 input supported" };
+                    (d->vi->format->id != pfYUV420P8 && d->vi->format->id != pfYUV420P16 && d->vi->format->id != pfRGB24))
+                    throw std::string{ "only constant format YUV420P8, YUV420P16, and RGB24 input supported" };
 
                 const char * _file = vsapi->propGetData(in, "file", 0, nullptr);
                 const int size = MultiByteToWideChar(CP_UTF8, 0, _file, -1, nullptr, 0);
@@ -1228,6 +1276,9 @@ namespace Plugin
                     d->vobsub = std::make_unique<CVobSubVapourSynthFilter>(file.get(), &err);
                 if (err)
                     throw std::string{ "can't open " } + _file;
+
+                if (d->vi->format->id == pfYUV420P16)
+                    d->buffer = std::make_unique<uint16_t[]>(d->vi->width * (d->vi->height + d->vi->height / 2));
             } catch (const std::string & error) {
                 vsapi->setError(out, (filterName + ": " + error).c_str());
                 vsapi->freeNode(d->node);

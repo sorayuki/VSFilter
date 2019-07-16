@@ -1199,7 +1199,7 @@ namespace Plugin
             try {
                 if (!isConstantFormat(d->vi) ||
                     (d->vi->format->id != pfYUV420P8 && d->vi->format->id != pfRGB24))
-                    throw std::string{ ": only constant format YUV420P8 and RGB24 input supported" };
+                    throw std::string{ "only constant format YUV420P8 and RGB24 input supported" };
 
                 const char * _file = vsapi->propGetData(in, "file", 0, nullptr);
                 const int size = MultiByteToWideChar(CP_UTF8, 0, _file, -1, nullptr, 0);
@@ -1220,16 +1220,16 @@ namespace Plugin
                     d->vfr = GetVFRTranslator(vfr);
 
                 if (!d->vi->fpsNum && fps <= 0.0f && !d->vfr)
-                    throw std::string{ ": variable framerate clip must have fps or vfr specified" };
+                    throw std::string{ "variable framerate clip must have fps or vfr specified" };
 
                 if (filterName == "TextSub")
                     d->textsub = std::make_unique<CTextSubVapourSynthFilter>(file.get(), charset, fps, &err);
                 else
                     d->vobsub = std::make_unique<CVobSubVapourSynthFilter>(file.get(), &err);
                 if (err)
-                    throw std::string{ ": can't open " } + _file;
+                    throw std::string{ "can't open " } + _file;
             } catch (const std::string & error) {
-                vsapi->setError(out, (filterName + error).c_str());
+                vsapi->setError(out, (filterName + ": " + error).c_str());
                 vsapi->freeNode(d->node);
                 return;
             }

@@ -1078,8 +1078,16 @@ namespace Plugin
             VFRTranslator * vfr;
             std::unique_ptr<CTextSubVapourSynthFilter> textsub;
             std::unique_ptr<CVobSubVapourSynthFilter> vobsub;
-            std::unique_ptr<uint16_t[]> buffer;
+            VSFrameRef * buffer;
         };
+
+        static inline __m128i _MM_PACKUS_EPI32(const __m128i & low, const __m128i & high) noexcept {
+            const __m128i val_32 = _mm_set1_epi32(0x8000);
+            const __m128i val_16 = _mm_set1_epi16(0x8000);
+            const __m128i low1 = _mm_sub_epi32(low, val_32);
+            const __m128i high1 = _mm_sub_epi32(high, val_32);
+            return _mm_add_epi16(_mm_packs_epi32(low1, high1), val_16);
+        }
 
         static void VS_CC vsfilterInit(VSMap * in, VSMap * out, void ** instanceData, VSNode * node, VSCore * core, const VSAPI * vsapi) {
             const VSFilterData * d = static_cast<const VSFilterData *>(*instanceData);
@@ -1094,7 +1102,7 @@ namespace Plugin
             } else if (activationReason == arAllFramesReady) {
                 const VSFrameRef * src = vsapi->getFrameFilter(n, d->node, frameCtx);
                 VSFrameRef * dst = vsapi->copyFrame(src, core);
-                VSFrameRef * tmp = nullptr;
+                VSFrameRef * bgr = nullptr;
 
                 SubPicDesc subpic;
                 subpic.w = d->vi->width;
@@ -1109,59 +1117,70 @@ namespace Plugin
                     subpic.bpp = 8;
                     subpic.type = MSP_YV12;
                 } else if (d->vi->format->id == pfYUV420P16) {
+                    const int uvWidth = vsapi->getFrameWidth(src, 1);
+                    const int uvWidthMod8 = uvWidth / 8 * 8;
                     const int uvStride = vsapi->getStride(src, 1) / sizeof(uint16_t);
-                    const int bufStride = d->vi->width;
+                    const int bufStride = vsapi->getStride(d->buffer, 0);
                     const uint16_t * srcpY = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, 0));
                     const uint16_t * srcpU = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, 1));
                     const uint16_t * srcpV = reinterpret_cast<const uint16_t *>(vsapi->getReadPtr(src, 2));
-                    uint16_t * VS_RESTRICT buffer = d->buffer.get();
+                    uint8_t * VS_RESTRICT buffer = vsapi->getWritePtr(d->buffer, 0);
 
-                    vs_bitblt(buffer, d->vi->width * sizeof(uint16_t), srcpY, vsapi->getStride(src, 0), d->vi->width * sizeof(uint16_t), d->vi->height);
+                    vs_bitblt(buffer, bufStride, srcpY, vsapi->getStride(src, 0), d->vi->width * sizeof(uint16_t), d->vi->height);
                     buffer += bufStride * d->vi->height;
 
                     for (int y = 0; y < vsapi->getFrameHeight(src, 1); y++) {
-                        for (int x = 0; x < vsapi->getFrameWidth(src, 1); x++) {
-                            buffer[x * 2 + 0] = srcpU[x];
-                            buffer[x * 2 + 1] = srcpV[x];
+                        for (int x = 0; x < uvWidthMod8; x += 8) {
+                            const __m128i u = _mm_load_si128(reinterpret_cast<const __m128i *>(srcpU + x));
+                            const __m128i v = _mm_load_si128(reinterpret_cast<const __m128i *>(srcpV + x));
+
+                            const __m128i uvLow = _mm_unpacklo_epi16(u, v);
+                            _mm_stream_si128(reinterpret_cast<__m128i *>(reinterpret_cast<uint32_t *>(buffer) + x), uvLow);
+
+                            const __m128i uvHigh = _mm_unpackhi_epi16(u, v);
+                            _mm_stream_si128(reinterpret_cast<__m128i *>(reinterpret_cast<uint32_t *>(buffer) + x + 4), uvHigh);
                         }
+
+                        for (int x = uvWidthMod8; x < uvWidth; x++)
+                            reinterpret_cast<uint32_t *>(buffer)[x] = (srcpV[x] << 16) | srcpU[x];
 
                         srcpU += uvStride;
                         srcpV += uvStride;
                         buffer += bufStride;
                     }
 
-                    subpic.pitch = d->vi->width * sizeof(uint16_t);
-                    subpic.bits = d->buffer.get();
+                    subpic.pitch = bufStride;
+                    subpic.bits = vsapi->getWritePtr(d->buffer, 0);
                     subpic.bpp = 16;
                     subpic.type = MSP_P016;
                 } else {
-                    tmp = vsapi->newVideoFrame(vsapi->getFormatPreset(pfCompatBGR32, core), d->vi->width, d->vi->height, nullptr, core);
+                    bgr = vsapi->newVideoFrame(vsapi->getFormatPreset(pfCompatBGR32, core), d->vi->width, d->vi->height, nullptr, core);
 
                     const int srcStride = vsapi->getStride(src, 0);
-                    const int tmpStride = vsapi->getStride(tmp, 0);
+                    const int bgrStride = vsapi->getStride(bgr, 0);
                     const uint8_t * srcpR = vsapi->getReadPtr(src, 0);
                     const uint8_t * srcpG = vsapi->getReadPtr(src, 1);
                     const uint8_t * srcpB = vsapi->getReadPtr(src, 2);
-                    uint8_t * VS_RESTRICT tmpp = vsapi->getWritePtr(tmp, 0);
+                    uint8_t * VS_RESTRICT bgrp = vsapi->getWritePtr(bgr, 0);
 
-                    tmpp += tmpStride * (d->vi->height - 1);
+                    bgrp += bgrStride * (d->vi->height - 1);
 
                     for (int y = 0; y < d->vi->height; y++) {
                         for (int x = 0; x < d->vi->width; x++) {
-                            tmpp[x * 4 + 0] = srcpB[x];
-                            tmpp[x * 4 + 1] = srcpG[x];
-                            tmpp[x * 4 + 2] = srcpR[x];
-                            tmpp[x * 4 + 3] = 0ui8;
+                            bgrp[x * 4 + 0] = srcpB[x];
+                            bgrp[x * 4 + 1] = srcpG[x];
+                            bgrp[x * 4 + 2] = srcpR[x];
+                            bgrp[x * 4 + 3] = 0;
                         }
 
                         srcpR += srcStride;
                         srcpG += srcStride;
                         srcpB += srcStride;
-                        tmpp -= tmpStride;
+                        bgrp -= bgrStride;
                     }
 
-                    subpic.pitch = tmpStride;
-                    subpic.bits = vsapi->getWritePtr(tmp, 0);
+                    subpic.pitch = bgrStride;
+                    subpic.bits = vsapi->getWritePtr(bgr, 0);
                     subpic.bpp = 32;
                     subpic.type = MSP_RGB32;
                 }
@@ -1178,20 +1197,39 @@ namespace Plugin
                     d->vobsub->Render(subpic, timestamp, d->fps);
 
                 if (d->vi->format->id == pfYUV420P16) {
-                    const int bufStride = d->vi->width;
+                    const int uvWidth = vsapi->getFrameWidth(dst, 1);
+                    const int uvWidthMod8 = uvWidth / 8 * 8;
+                    const int bufStride = vsapi->getStride(d->buffer, 0);
                     const int uvStride = vsapi->getStride(dst, 1) / sizeof(uint16_t);
-                    const uint16_t * buffer = d->buffer.get();
+                    const uint8_t * buffer = vsapi->getWritePtr(d->buffer, 0);
                     uint16_t * VS_RESTRICT dstpY = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(dst, 0));
                     uint16_t * VS_RESTRICT dstpU = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(dst, 1));
                     uint16_t * VS_RESTRICT dstpV = reinterpret_cast<uint16_t *>(vsapi->getWritePtr(dst, 2));
 
-                    vs_bitblt(dstpY, vsapi->getStride(dst, 0), buffer, d->vi->width * sizeof(uint16_t), d->vi->width * sizeof(uint16_t), d->vi->height);
+                    vs_bitblt(dstpY, vsapi->getStride(dst, 0), buffer, bufStride, d->vi->width * sizeof(uint16_t), d->vi->height);
                     buffer += bufStride * d->vi->height;
 
+                    const __m128i mask = _mm_set1_epi32(0x0000FFFF);
                     for (int y = 0; y < vsapi->getFrameHeight(dst, 1); y++) {
-                        for (int x = 0; x < vsapi->getFrameWidth(dst, 1); x++) {
-                            dstpU[x] = buffer[x * 2 + 0];
-                            dstpV[x] = buffer[x * 2 + 1];
+                        for (int x = 0; x < uvWidthMod8; x += 8) {
+                            const __m128i uvLow = _mm_load_si128(reinterpret_cast<const __m128i *>(reinterpret_cast<const uint32_t *>(buffer) + x));
+                            const __m128i uvHigh = _mm_load_si128(reinterpret_cast<const __m128i *>(reinterpret_cast<const uint32_t *>(buffer) + x + 4));
+
+                            const __m128i uLow = _mm_and_si128(uvLow, mask);
+                            const __m128i uHigh = _mm_and_si128(uvHigh, mask);
+                            const __m128i u = _MM_PACKUS_EPI32(uLow, uHigh);
+                            _mm_stream_si128(reinterpret_cast<__m128i *>(dstpU + x), u);
+
+                            const __m128i vLow = _mm_srli_epi32(uvLow, 16);
+                            const __m128i vHigh = _mm_srli_epi32(uvHigh, 16);
+                            const __m128i v = _MM_PACKUS_EPI32(vLow, vHigh);
+                            _mm_stream_si128(reinterpret_cast<__m128i *>(dstpV + x), v);
+                        }
+
+                        for (int x = uvWidthMod8; x < uvWidth; x++) {
+                            const uint32_t uv = reinterpret_cast<const uint32_t *>(buffer)[x];
+                            dstpU[x] = uv & 0xFFFF;
+                            dstpV[x] = uv >> 16;
                         }
 
                         buffer += bufStride;
@@ -1199,23 +1237,23 @@ namespace Plugin
                         dstpV += uvStride;
                     }
                 } else if (d->vi->format->id == pfRGB24) {
-                    const int tmpStride = vsapi->getStride(tmp, 0);
+                    const int bgrStride = vsapi->getStride(bgr, 0);
                     const int dstStride = vsapi->getStride(dst, 0);
-                    const uint8_t * tmpp = vsapi->getReadPtr(tmp, 0);
+                    const uint8_t * bgrp = vsapi->getReadPtr(bgr, 0);
                     uint8_t * VS_RESTRICT dstpR = vsapi->getWritePtr(dst, 0);
                     uint8_t * VS_RESTRICT dstpG = vsapi->getWritePtr(dst, 1);
                     uint8_t * VS_RESTRICT dstpB = vsapi->getWritePtr(dst, 2);
 
-                    tmpp += tmpStride * (d->vi->height - 1);
+                    bgrp += bgrStride * (d->vi->height - 1);
 
                     for (int y = 0; y < d->vi->height; y++) {
                         for (int x = 0; x < d->vi->width; x++) {
-                            dstpB[x] = tmpp[x * 4 + 0];
-                            dstpG[x] = tmpp[x * 4 + 1];
-                            dstpR[x] = tmpp[x * 4 + 2];
+                            dstpB[x] = bgrp[x * 4 + 0];
+                            dstpG[x] = bgrp[x * 4 + 1];
+                            dstpR[x] = bgrp[x * 4 + 2];
                         }
 
-                        tmpp -= tmpStride;
+                        bgrp -= bgrStride;
                         dstpR += dstStride;
                         dstpG += dstStride;
                         dstpB += dstStride;
@@ -1223,7 +1261,7 @@ namespace Plugin
                 }
 
                 vsapi->freeFrame(src);
-                vsapi->freeFrame(tmp);
+                vsapi->freeFrame(bgr);
                 return dst;
             }
 
@@ -1233,6 +1271,7 @@ namespace Plugin
         static void VS_CC vsfilterFree(void * instanceData, VSCore * core, const VSAPI * vsapi) {
             VSFilterData * d = static_cast<VSFilterData *>(instanceData);
             vsapi->freeNode(d->node);
+            vsapi->freeFrame(d->buffer);
             delete d;
         }
 
@@ -1278,7 +1317,7 @@ namespace Plugin
                     throw std::string{ "can't open " } + _file;
 
                 if (d->vi->format->id == pfYUV420P16)
-                    d->buffer = std::make_unique<uint16_t[]>(d->vi->width * (d->vi->height + d->vi->height / 2));
+                    d->buffer = vsapi->newVideoFrame(vsapi->getFormatPreset(pfGray16, core), d->vi->width, d->vi->height + d->vi->height / 2, nullptr, core);
             } catch (const std::string & error) {
                 vsapi->setError(out, (filterName + ": " + error).c_str());
                 vsapi->freeNode(d->node);

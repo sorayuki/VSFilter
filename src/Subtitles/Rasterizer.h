@@ -25,6 +25,13 @@
 #include <memory>
 #include "Ellipse.h"
 #include "../SubPic/ISubPic.h"
+#ifdef _VSMOD // patch m004. gradient colors
+#include "STS.h"
+#endif
+
+#ifdef _VSMOD // patch m006. moveable vector clip
+struct MOD_MOVEVC {};
+#endif
 
 #define PT_MOVETONC			0xfe
 #define PT_BSPLINETO		0xfc
@@ -185,6 +192,10 @@ public:
 	bool Rasterize(int xsub, int ysub, int fBlur, double fGaussianBlur);
 	int getOverlayWidth() const;
 
+#ifdef _VSMOD //patch m004. gradient colors
+	CRect Draw(SubPicDesc& spd, CRect& clipRect, byte* pAlphaMask, int xsub, int ysub, const DWORD* switchpts, bool fBody, bool fBorder, int typ, MOD_GRADIENT& mod_grad, MOD_MOVEVC& mod_vc);
+#else
 	CRect Draw(SubPicDesc& spd, CRect& clipRect, byte* pAlphaMask, int xsub, int ysub, const DWORD* switchpts, bool fBody, bool fBorder) const;
+#endif
 	void FillSolidRect(SubPicDesc& spd, int x, int y, int nWidth, int nHeight, DWORD lColor) const;
 };

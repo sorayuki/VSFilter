@@ -3280,6 +3280,8 @@ void STSStyle::SetDefault()
 	mod_z = 0;
 	// patch m003. random text points
 	mod_rand.clear();
+	// patch m004. gradient colors
+	mod_grad.clear();
 #endif
 }
 
@@ -3310,6 +3312,8 @@ bool STSStyle::operator == (const STSStyle& s) const
 		   && mod_z == s.mod_z
 		   // patch m003. random text points
 		   && mod_rand == s.mod_rand
+		   // patch m004. gradient colors
+		   && mod_grad == s.mod_grad
 #endif
 		   && IsFontStyleEqual(s));
 }
@@ -3478,7 +3482,8 @@ static bool OpenRealText(CTextFile* file, CSimpleTextSubtitle& ret, int CharSet)
 	return !ret.IsEmpty();
 }
 
-#ifdef _VSMOD // patch m003. random text points
+#ifdef _VSMOD
+// patch m003. random text points
 bool MOD_RANDOM::operator == (const MOD_RANDOM& mr) const
 {
 	return (X == mr.X
@@ -3493,5 +3498,103 @@ void MOD_RANDOM::clear()
 	Y = 0;
 	Z = 0;
 	Seed = 0;
+}
+
+MOD_GRADIENT::MOD_GRADIENT()
+{
+	clear();
+}
+
+bool MOD_GRADIENT::operator == (const MOD_GRADIENT& mg) const
+{
+	return (color[0][0] == mg.color[0][0] // T.T
+		&& color[1][0] == mg.color[1][0]
+		&& color[2][0] == mg.color[2][0]
+		&& color[3][0] == mg.color[3][0]
+		&& color[0][1] == mg.color[0][1]
+		&& color[1][1] == mg.color[1][1]
+		&& color[2][1] == mg.color[2][1]
+		&& color[3][1] == mg.color[3][1]
+		&& color[0][2] == mg.color[0][2]
+		&& color[1][2] == mg.color[1][2]
+		&& color[2][2] == mg.color[2][2]
+		&& color[3][2] == mg.color[3][2]
+		&& color[0][3] == mg.color[0][3]
+		&& color[1][3] == mg.color[1][3]
+		&& color[2][3] == mg.color[2][3]
+		&& color[3][3] == mg.color[3][3]
+		&& alpha[0][0] == mg.alpha[0][0]
+		&& alpha[1][0] == mg.alpha[1][0]
+		&& alpha[2][0] == mg.alpha[2][0]
+		&& alpha[3][0] == mg.alpha[3][0]
+		&& alpha[0][1] == mg.alpha[0][1]
+		&& alpha[1][1] == mg.alpha[1][1]
+		&& alpha[2][1] == mg.alpha[2][1]
+		&& alpha[3][1] == mg.alpha[3][1]
+		&& alpha[0][2] == mg.alpha[0][2]
+		&& alpha[1][2] == mg.alpha[1][2]
+		&& alpha[2][2] == mg.alpha[2][2]
+		&& alpha[3][2] == mg.alpha[3][2]
+		&& alpha[0][3] == mg.alpha[0][3]
+		&& alpha[1][3] == mg.alpha[1][3]
+		&& alpha[2][3] == mg.alpha[2][3]
+		&& alpha[3][3] == mg.alpha[3][3]
+		&& mode[0] == mg.mode[0]
+		&& mode[1] == mg.mode[1]
+		&& mode[2] == mg.mode[2]
+		&& mode[3] == mg.mode[3]
+		&& b_images[0] == mg.b_images[0]
+		&& b_images[1] == mg.b_images[1]
+		&& b_images[2] == mg.b_images[2]
+		&& b_images[3] == mg.b_images[3]);
+}
+
+void MOD_GRADIENT::clear()
+{
+	memset(&color, 0, sizeof(color));
+	memset(&colors, 0, sizeof(colors));
+	memset(&alpha, 0, sizeof(alpha));
+	memset(&alphas, 0, sizeof(alphas));
+	memset(&mode, 0, sizeof(mode));
+	colors[0] = 0x00ffffff;
+	colors[1] = 0x0000ffff;
+	alphas[3] = 0x80;
+	width = 0;
+	height = 0;
+	xoffset = 0;
+	yoffset = 0;
+	subpixx = 0;
+	subpixy = 0;
+	fadalpha = 0xFF;
+}
+
+#include <math.h>
+DWORD MOD_GRADIENT::getmixcolor(int tx, int ty, int i) // too slow T.T
+{
+	DWORD colorb = 0;
+	tx += xoffset;
+	// gradient
+	if (mode[i] == 1)
+	{
+		double x = (double)tx / (double)width;
+		double y = (double)ty / (double)height;
+		for (int j = 0; j < 3; j++)
+		{
+			colorb |= ((DWORD)(((color[i][0] >> (8 * j)) & 0xff) * (1 - x) * y +
+				((color[i][1] >> (8 * j)) & 0xff) * x * y +
+				((color[i][2] >> (8 * j)) & 0xff) * (1 - y) * (1 - x) +
+				((color[i][3] >> (8 * j)) & 0xff) * x * (1 - y)) & 0xff) << (8 * j);
+		}
+		DWORD al = (DWORD)((alpha[i][0] * (1 - x) * y) +
+			(alpha[i][1] * x * y) +
+			(alpha[i][2] * (1 - y) * (1 - x)) +
+			(alpha[i][3] * x * (1 - y))) & 0xff;
+		colorb |= (((0xff - al) * (0xff - fadalpha)) & 0xff00) << (16);
+		return colorb;
+	}
+	// todo: png background
+	// usual color
+//	if(mode[i]==0)
+	return (colors[i] | alphas[i] << 24);
 }
 #endif

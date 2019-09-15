@@ -45,6 +45,43 @@ public:
 };
 #endif
 
+#ifdef _VSMOD // patch m004. gradient colors
+struct MOD_PNGIMAGE {
+	bool operator == (const MOD_PNGIMAGE&) const { return true; }
+};
+
+class MOD_GRADIENT
+{
+public:
+	COLORREF	colors[4]; // c
+	COLORREF	alphas[4]; // a
+	COLORREF	color[4][4]; // vc (rgb is reverted to style.colors)
+	BYTE		alpha[4][4]; // va
+	int		mode[4];
+
+	// for renderer
+	int		height;
+	int		width;
+	int		xoffset;
+	int		yoffset;
+
+	BYTE		subpixx;
+	BYTE		subpixy;
+	BYTE		fadalpha;
+
+	BYTE		img_alpha;
+
+	// for background image
+	MOD_PNGIMAGE	b_images[4];
+
+	MOD_GRADIENT();
+	bool operator == (const MOD_GRADIENT& mg) const;
+
+	void clear();
+	DWORD getmixcolor(int tx, int ty, int i);
+};
+#endif
+
 class STSStyle
 {
 public:
@@ -76,6 +113,8 @@ public:
 	double		mod_z;
 	// patch m003. random text points
 	MOD_RANDOM	mod_rand;
+	// patch m004. gradient colors
+	MOD_GRADIENT mod_grad;
 #endif
 
 	STSStyle();

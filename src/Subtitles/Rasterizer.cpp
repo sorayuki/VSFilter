@@ -27,6 +27,17 @@
 #include "../SubPic/ISubPic.h"
 #include "../DSUtil/CPUInfo.h"
 
+#ifdef _VSMOD
+struct MOD_INFO
+{
+	// patch m004. gradient colors
+	int typ;
+	MOD_GRADIENT mod_grad;
+	// patch m006. moveable vector clip
+	MOD_MOVEVC mod_vc;
+};
+#endif
+
 int Rasterizer::getOverlayWidth() const
 {
 	return m_pOverlayData ? m_pOverlayData->mOverlayWidth * 8 : 0;
@@ -1673,6 +1684,25 @@ namespace
 		}
 	}
 
+#ifdef _VSMOD // patch m004. gradient colors
+	template <class... Args>
+	__forceinline void DrawModInternal(bool bUseAVX2, MOD_INFO& mod_info, Args&& ... args)
+	{
+		if (
+			((mod_info.typ == 0) && ((mod_info.mod_grad.mode[0] == 0) && (mod_info.mod_grad.mode[1] == 0)))
+			|| ((mod_info.typ != 0) && (mod_info.mod_grad.mode[typ] == 0))
+			)
+			// No gradient
+		{
+			DrawInternal<SSE2>(std::forward<Args>(args)...);
+		}
+		else
+		{
+
+		}
+	}
+#endif
+
 	template <class... Args>
 	__forceinline void DrawInternal(bool bUseAVX2, Args&& ... args)
 	{
@@ -1699,8 +1729,14 @@ namespace
 //	switchpts[i*2] contains a colour and switchpts[i*2+1] contains the coordinate to use that colour from
 // fBody tells whether to render the body of the subs.
 // fBorder tells whether to render the border of the subs.
+
+#ifdef _VSMOD // patch m004. gradient colors
+CRect Rasterizer::Draw(SubPicDesc& spd, CRect& clipRect, byte* pAlphaMask, int xsub, int ysub,
+	const DWORD* switchpts, bool fBody, bool fBorder, int typ, MOD_GRADIENT& mod_grad, MOD_MOVEVC& mod_vc)
+#else
 CRect Rasterizer::Draw(SubPicDesc& spd, CRect& clipRect, byte* pAlphaMask, int xsub, int ysub,
 					   const DWORD* switchpts, bool fBody, bool fBorder) const
+#endif
 {
 	CRect bbox(0, 0, 0, 0);
 
@@ -1765,6 +1801,68 @@ CRect Rasterizer::Draw(SubPicDesc& spd, CRect& clipRect, byte* pAlphaMask, int x
 	draw_op |= fBody ? BODY : 0;
 	draw_op |= switchpts[1] != DWORD_MAX ? SWITCHPOINT : 0;
 
+#ifdef _VSMOD
+	MOD_INFO mod_info;
+	mod_info.typ = typ;
+	// patch m004. gradient colors
+	mod_info.mod_grad = mod_grad;
+	mod_info.mod_grad.width = m_pOverlayData->mOverlayWidth;
+	mod_info.mod_grad.height = m_pOverlayData->mOverlayHeight;
+	mod_info.mod_grad.xoffset = xo;
+	mod_info.mod_grad.yoffset = yo;
+	// patch m006. moveable vector clip
+	mod_info.mod_vc = mod_vc;
+	switch (draw_op) {
+		case BODY:
+			// Draw single color fill or shadow
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts);
+			break;
+		case NONE:
+			// Draw single color border
+			ASSERT(s == srcBorder);
+			__assume(s == srcBorder);
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, srcBorder,
+				srcBody);
+			break;
+		case BODY | SWITCHPOINT:
+			// Draw multi color fill or shadow
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, xo);
+			break;
+		case SWITCHPOINT:
+			// Draw multi color border
+			ASSERT(s == srcBorder);
+			__assume(s == srcBorder);
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, srcBorder,
+				srcBody, xo);
+			break;
+		case ALPHA:
+			// Draw single color border with alpha mask
+			ASSERT(s == srcBorder);
+			__assume(s == srcBorder);
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, srcBorder,
+				srcBody, alphaMask, spd.w);
+			break;
+		case ALPHA | BODY:
+			// Draw single color fill or shadow with alpha mask
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, alphaMask,
+				spd.w);
+			break;
+		case ALPHA | SWITCHPOINT:
+			// Draw multi color border with alpha mask
+			ASSERT(s == srcBorder);
+			__assume(s == srcBorder);
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, srcBorder,
+				srcBody, alphaMask, spd.w, xo);
+			break;
+		case ALPHA | BODY | SWITCHPOINT:
+			// Draw multi color fill or shadow with alpha mask
+			DrawModInternal(m_bUseAVX2, mod_info, dst, spd.pitch, s, m_pOverlayData->mOverlayPitch, w, h, switchpts, alphaMask,
+				spd.w, xo);
+			break;
+		default:
+			ASSERT(FALSE);
+	}
+#else
 	switch (draw_op) {
 		case BODY:
 			// Draw single color fill or shadow
@@ -1815,6 +1913,7 @@ CRect Rasterizer::Draw(SubPicDesc& spd, CRect& clipRect, byte* pAlphaMask, int x
 		default:
 			ASSERT(FALSE);
 	}
+#endif
 
 	return bbox;
 }

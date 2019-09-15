@@ -246,14 +246,28 @@ void CWord::Transform(const CPoint &org ) // Transform_C
 	const double cay = cos((M_PI / 180.0) * m_style.fontAngleY);
 	const double say = sin((M_PI / 180.0) * m_style.fontAngleY);
 
+#ifdef _VSMOD // patch m003. random text points
+	double xrnd = m_style.mod_rand.X * 100.0;
+	double yrnd = m_style.mod_rand.Y * 100.0;
+	double zrnd = m_style.mod_rand.Z * 100.0;
+
+	srand(m_style.mod_rand.Seed);
+#endif
+
 	double dOrgX = static_cast<double>(org.x), dOrgY = static_cast<double>(org.y);
 	for (ptrdiff_t i = 0; i < mPathPoints; i++) {
 		double x, y, z, xx, yy, zz;
 
 		x = mpPathPoints[i].x;
 		y = mpPathPoints[i].y;
-#ifdef _VSMOD // patch m002. Z-coord
+#ifdef _VSMOD 
+		// patch m002. Z-coord
 		z = m_style.mod_z;
+
+		// patch m003. random text points
+		x = xrnd > 0 ? (xrnd - rand() % (int)(xrnd * 2 + 1)) / 100.0 + x : x;
+		y = yrnd > 0 ? (yrnd - rand() % (int)(yrnd * 2 + 1)) / 100.0 + y : y;
+		z = zrnd > 0 ? (zrnd - rand() % (int)(zrnd * 2 + 1)) / 100.0 + z : z;
 #else
 		z = 0;
 #endif
@@ -307,21 +321,26 @@ void CWord::Transform(const CPoint &org ) // Transform_SSE2
 
 	const __m128 __1000 = _mm_set_ps1(1000.0f);
 
+#ifdef _VSMOD // patch m003. random text points
+	double xrnd = m_style.mod_rand.X * 100.0;
+	double yrnd = m_style.mod_rand.Y * 100.0;
+	double zrnd = m_style.mod_rand.Z * 100.0;
+
+	srand(m_style.mod_rand.Seed);
+#endif
+
 	int mPathPointsD4 = mPathPoints / 4;
 	int mPathPointsM4 = mPathPoints % 4;
 
 	for (ptrdiff_t i = 0; i < mPathPointsD4 + 1; i++) {
 		__m128 __pointx, __pointy, __tmpx, __tmpy;
 #ifdef _VSMOD // patch m002. Z-coord
-		__m128 __pointz, __tmpz;
+		__m128 __pointz;
 #endif
 		// we can't use load .-.
 		if (i != mPathPointsD4) {
 			__pointx = _mm_set_ps((float)mpPathPoints[4 * i + 0].x, (float)mpPathPoints[4 * i + 1].x, (float)mpPathPoints[4 * i + 2].x, (float)mpPathPoints[4 * i + 3].x);
 			__pointy = _mm_set_ps((float)mpPathPoints[4 * i + 0].y, (float)mpPathPoints[4 * i + 1].y, (float)mpPathPoints[4 * i + 2].y, (float)mpPathPoints[4 * i + 3].y);
-#ifdef _VSMOD // patch m002. Z-coord
-			__pointz = _mm_set_ps1(m_style.mod_z);
-#endif
 		} else { // last cycle
 			switch (mPathPointsM4) {
 				default:
@@ -341,6 +360,30 @@ void CWord::Transform(const CPoint &org ) // Transform_SSE2
 					break;
 			}
 		}
+
+#ifdef _VSMOD
+		// patch m002. Z-coord
+		__pointz = _mm_set_ps1(m_style.mod_z);
+
+		// patch m003. random text points
+		int count = 0;
+		if (i != mPathPointsD4) count = 4;
+		else count = mPathPointsM4;
+
+		float dx[4] = { 0.0f }, dy[4] = { 0.0f }, dz[4] = { 0.0f };
+		for (int i = 0; i < count; ++i)
+		{
+			dx[i] = xrnd > 0 ? (xrnd - rand() % (int)(xrnd * 2 + 1)) / 100.0 : 0.0f;
+			dy[i] = yrnd > 0 ? (yrnd - rand() % (int)(yrnd * 2 + 1)) / 100.0 : 0.0f;
+			dz[i] = zrnd > 0 ? (zrnd - rand() % (int)(zrnd * 2 + 1)) / 100.0 : 0.0f;
+		}
+
+		__pointx = _mm_add_ps(__pointx, _mm_load_ps(dx));
+		__pointy = _mm_add_ps(__pointx, _mm_load_ps(dy));
+		__pointz = _mm_add_ps(__pointx, _mm_load_ps(dz));
+#else
+		__pointz = _mm_setzero_ps();
+#endif
 
 		// scale and shift
 		__tmpy = __pointx; // save a copy for calculating __pointy later
@@ -1658,6 +1701,19 @@ CRenderedTextSubtitle::CRenderedTextSubtitle(CCritSec* pLock)
 		s_SSATagCmds[L"xshad"] = SSA_xshad;
 		s_SSATagCmds[L"ybord"] = SSA_ybord;
 		s_SSATagCmds[L"yshad"] = SSA_yshad;
+
+#ifdef _VSMOD
+		// patch m001. Vertical fontspacing
+		s_SSATagCmds[L"fsvp"] = SSA_fsvp;
+		// patch m002. Z-coord
+		s_SSATagCmds[L"z"] = SSA_z;
+		// patch m003. random text points
+		s_SSATagCmds[L"rnd"] = SSA_rnd;
+		s_SSATagCmds[L"rndx"] = SSA_rndx;
+		s_SSATagCmds[L"rndy"] = SSA_rndy;
+		s_SSATagCmds[L"rndz"] = SSA_rndz;
+		s_SSATagCmds[L"rnds"] = SSA_rnds;
+#endif
 	}
 }
 
@@ -2074,13 +2130,6 @@ bool CRenderedTextSubtitle::ParseSSATag(SSATagsList& tagsList, const CStringW& s
 					tag.paramsReal.Add(wcstod(cmd.Mid(3), NULL));
 				}
 				break;
-#ifdef _VSMOD // patch m001. Vertical fontspacing
-			case SSA_fsvp:
-				if (cmd.GetLength() > 4) {
-					tag.paramsReal.Add(wcstod(cmd.Mid(4), NULL));
-				}
-				break;
-#endif
 			case SSA_pbo:
 				if (cmd.GetLength() > 3) {
 					tag.paramsInt.Add(wcstol(cmd.Mid(3), NULL, 10));
@@ -2113,6 +2162,33 @@ bool CRenderedTextSubtitle::ParseSSATag(SSATagsList& tagsList, const CStringW& s
 					tag.paramsReal.Add(wcstod(cmd.Mid(5), NULL));
 				}
 				break;
+#ifdef _VSMOD
+			// patch m001. Vertical fontspacing
+			case SSA_fsvp:
+				if (cmd.GetLength() > 4) {
+					tag.paramsReal.Add(wcstod(cmd.Mid(4), NULL));
+				}
+				break;
+
+			// patch m003. random text points
+			case SSA_rnd:
+				if (cmd.GetLength() > 3) {
+					tag.paramsReal.Add(wcstod(cmd.Mid(3), NULL));
+				}
+				break;
+			case SSA_rndx:
+			case SSA_rndy:
+			case SSA_rndz:
+				if (cmd.GetLength() > 4) {
+					tag.paramsReal.Add(wcstod(cmd.Mid(4), NULL));
+				}
+				break;
+			case SSA_rnds:
+				if (cmd.GetLength() > 4) {
+					tag.paramsInt.Add(wcstol(cmd.Mid(4), NULL, 16));
+				}
+				break;
+#endif
 		}
 
 		tagsList->AddTail(tag);
@@ -2358,19 +2434,6 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 									? CalcAnimation(tag.paramsReal[0], style.fontSpacing, bAnimate)
 									: org.fontSpacing;
 				break;
-#ifdef _VSMOD // patch m001. Vertical fontspacing
-			case SSA_fsvp:
-			{
-				if (!tag.paramsReal.IsEmpty()) {
-					double dst = tag.paramsReal[0];
-					double nx = CalcAnimation(dst, style.mod_verticalSpace, bAnimate);
-					style.mod_verticalSpace = nx;
-				}
-				else
-					style.mod_verticalSpace = org.mod_verticalSpace;
-				break;
-			}
-#endif
 			case SSA_fs:
 				if (!tag.paramsInt.IsEmpty() && !bUseOriginal) {
 					if (!tag.params.IsEmpty() && (tag.params[0][0] == L'-' || tag.params[0][0] == L'+')) {
@@ -2465,7 +2528,7 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 				m_polygonBaselineOffset = !tag.paramsInt.IsEmpty() && !bUseOriginal ? tag.paramsInt[0] : 0;
 				break;
 			case SSA_pos:
-#ifdef _VSMOD
+#ifdef _VSMOD // patch m002. Z-coord
 				if ((tag.paramsReal.GetCount() == 2 || tag.paramsReal.GetCount() == 3)
 					&& !sub->m_effects[EF_MOVE]) 
 				{
@@ -2575,7 +2638,21 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 									 ? CalcAnimation(tag.paramsReal[0], style.shadowDepthY, bAnimate)
 									 : org.shadowDepthY;
 				break;
-#ifdef _VSMOD // patch m002. Z-coord
+#ifdef _VSMOD 
+			// patch m001. Vertical fontspacing
+			case SSA_fsvp:
+			{
+				if (!tag.paramsReal.IsEmpty()) {
+					double dst = tag.paramsReal[0];
+					double nx = CalcAnimation(dst, style.mod_verticalSpace, bAnimate);
+					style.mod_verticalSpace = nx;
+				}
+				else
+					style.mod_verticalSpace = org.mod_verticalSpace;
+				break;
+			}
+
+			// patch m002. Z-coord
 			case SSA_z:
 			{
 				if (!tag.paramsReal.IsEmpty())
@@ -2586,6 +2663,53 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 				}
 				else
 					style.mod_z = org.mod_z;
+				break;
+			}
+
+			// patch m003. random text points
+			case SSA_rnds:
+			{
+				if (!tag.paramsInt.IsEmpty())
+				{
+					double dst = tag.paramsInt[0];
+					double nx = CalcAnimation(dst, style.mod_rand.Seed, bAnimate);
+					style.mod_rand.Seed = nx;
+				}
+				else
+					style.mod_rand.Seed = org.mod_rand.Seed;
+				break;
+			}
+			case SSA_rnd:
+			case SSA_rndx:
+			case SSA_rndy:
+			case SSA_rndz:
+			{
+				std::vector<int*> target, source;
+				switch (tag.cmd) {
+				case SSA_rnd:
+					target.assign({ &style.mod_rand.X, &style.mod_rand.Y, &style.mod_rand.Z });
+					source.assign({ &org.mod_rand.X, &org.mod_rand.Y, &org.mod_rand.Z });
+					break;
+				case SSA_rndx:
+					target.assign({ &style.mod_rand.X });
+					source.assign({ &org.mod_rand.X });
+					break;
+				case SSA_rndy:
+					target.assign({ &style.mod_rand.Y });
+					source.assign({ &org.mod_rand.Y });
+					break;
+				case SSA_rndz:
+					target.assign({ &style.mod_rand.Z });
+					source.assign({ &org.mod_rand.Z });
+					break;
+				}
+
+				double dst = tag.paramsReal[0] * 8;
+				for (int i = 0; i < target.size(); ++i)
+					if (!tag.paramsReal.IsEmpty())
+						*target[i] = CalcAnimation(dst, *target[i], bAnimate);
+					else
+						*target[i] = *source[i];
 				break;
 			}
 #endif

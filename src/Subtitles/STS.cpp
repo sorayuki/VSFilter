@@ -3278,6 +3278,8 @@ void STSStyle::SetDefault()
 	mod_verticalSpace = 0;
 	// patch m002. Z-coord
 	mod_z = 0;
+	// patch m003. random text points
+	mod_rand.clear();
 #endif
 }
 
@@ -3306,6 +3308,8 @@ bool STSStyle::operator == (const STSStyle& s) const
 		   && mod_verticalSpace == s.mod_verticalSpace
 		   // patch m002. Z-coord
 		   && mod_z == s.mod_z
+		   // patch m003. random text points
+		   && mod_rand == s.mod_rand
 #endif
 		   && IsFontStyleEqual(s));
 }
@@ -3473,3 +3477,21 @@ static bool OpenRealText(CTextFile* file, CSimpleTextSubtitle& ret, int CharSet)
 
 	return !ret.IsEmpty();
 }
+
+#ifdef _VSMOD // patch m003. random text points
+bool MOD_RANDOM::operator == (const MOD_RANDOM& mr) const
+{
+	return (X == mr.X
+		&& Y == mr.Y
+		&& Z == mr.X
+		&& Seed == mr.Seed);
+}
+
+void MOD_RANDOM::clear()
+{
+	X = 0;
+	Y = 0;
+	Z = 0;
+	Seed = 0;
+}
+#endif

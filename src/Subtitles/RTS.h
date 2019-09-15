@@ -342,6 +342,13 @@ enum SSATagCmd {
 	SSA_pos,
 	SSA_p,
 	SSA_q,
+#ifdef _VSMOD // patch m003. random text points
+	SSA_rnd,
+	SSA_rndx,
+	SSA_rndy,
+	SSA_rndz,
+	SSA_rnds,
+#endif
 	SSA_r,
 	SSA_shad,
 	SSA_s,

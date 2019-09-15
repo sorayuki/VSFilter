@@ -30,6 +30,21 @@
 
 enum tmode {TIME, FRAME}; // the meaning of STSEntry::start/end
 
+#ifdef _VSMOD // patch m003. random text points
+class MOD_RANDOM
+{
+public:
+	int X;
+	int Y;
+	int Z;
+	int Seed; // random seed
+
+	bool operator == (const MOD_RANDOM& mr) const;
+
+	void clear();
+};
+#endif
+
 class STSStyle
 {
 public:
@@ -59,6 +74,8 @@ public:
 	double		mod_verticalSpace;
 	// patch m002. Z-coord
 	double		mod_z;
+	// patch m003. random text points
+	MOD_RANDOM	mod_rand;
 #endif
 
 	STSStyle();

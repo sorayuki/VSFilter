@@ -1040,12 +1040,21 @@ namespace Plugin
 
 		extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit2(IScriptEnvironment* env)
 		{
+#ifdef _VSMOD
+			env->AddFunction("VobSub", "cs", VobSubCreateS, 0);
+			env->AddFunction("TextSubMod", "c[file]s[charset]i[fps]f[vfr]s", TextSubCreateGeneral, 0);
+			env->AddFunction("TextSubSwapUVMod", "b", TextSubSwapUV, 0);
+			env->AddFunction("MaskSubMod", "[file]s[width]i[height]i[fps]f[length]i[charset]i[vfr]s", MaskSubCreate, 0);
+			env->SetVar(env->SaveString("RGBA"), false);
+			return(nullptr);
+#else
 			env->AddFunction("VobSub", "cs", VobSubCreateS, 0);
 			env->AddFunction("TextSub", "c[file]s[charset]i[fps]f[vfr]s", TextSubCreateGeneral, 0);
 			env->AddFunction("TextSubSwapUV", "b", TextSubSwapUV, 0);
 			env->AddFunction("MaskSub", "[file]s[width]i[height]i[fps]f[length]i[charset]i[vfr]s", MaskSubCreate, 0);
 			env->SetVar(env->SaveString("RGBA"),false);
 			return(nullptr);
+#endif
 		}
 	}
 
@@ -1309,7 +1318,11 @@ namespace Plugin
                 if (!d->vi->fpsNum && fps <= 0.0f && !d->vfr)
                     throw std::string{ "variable framerate clip must have fps or vfr specified" };
 
-                if (filterName == "TextSub")
+#ifdef _VSMOD
+				if (filterName == "TextSubMod")
+#else
+				if (filterName == "TextSub")
+#endif
                     d->textsub = std::make_unique<CTextSubVapourSynthFilter>(file.get(), charset, fps, &err);
                 else
                     d->vobsub = std::make_unique<CVobSubVapourSynthFilter>(file.get(), &err);
@@ -1331,6 +1344,22 @@ namespace Plugin
         // Init
 
         VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin * plugin) {
+#ifdef _VSMOD
+			configFunc("com.holywu.vsfiltermod", "vsfmod", "VSFilterMod", VAPOURSYNTH_API_VERSION, 1, plugin);
+
+			registerFunc("TextSubMod",
+				"clip:clip;"
+				"file:data;"
+				"charset:int:opt;"
+				"fps:float:opt;"
+				"vfr:data:opt;",
+				vsfilterCreate, const_cast<char*>("TextSubMod"), plugin);
+
+			registerFunc("VobSub",
+				"clip:clip;"
+				"file:data;",
+				vsfilterCreate, const_cast<char*>("VobSub"), plugin);
+#else
             configFunc("com.holywu.vsfilter", "vsf", "VSFilter", VAPOURSYNTH_API_VERSION, 1, plugin);
             
             registerFunc("TextSub",
@@ -1345,6 +1374,7 @@ namespace Plugin
                          "clip:clip;"
                          "file:data;",
                          vsfilterCreate, const_cast<char *>("VobSub"), plugin);
+#endif
         }
     }
 

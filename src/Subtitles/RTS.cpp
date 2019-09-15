@@ -1053,7 +1053,11 @@ CRect CLine::PaintShadow(SubPicDesc& spd, CRect& clipRect, BYTE* pAlphaMask, CPo
 
 		if (w->m_style.shadowDepthX != 0 || w->m_style.shadowDepthY != 0) {
 			int x = p.x + (int)(w->m_style.shadowDepthX+0.5);
+#ifdef _VSMOD // patch m001. Vertical fontspacing
+			int y = p.y + w->m_style.mod_verticalSpace + m_ascent + w->m_ascent + (int)(w->m_style.shadowDepthY + 0.5);
+#else
 			int y = p.y + m_ascent - w->m_ascent + (int)(w->m_style.shadowDepthY+0.5);
+#endif
 
 			DWORD a = 0xff - w->m_style.alpha[3];
 			if (alpha > 0) {
@@ -1093,7 +1097,11 @@ CRect CLine::PaintOutline(SubPicDesc& spd, CRect& clipRect, BYTE* pAlphaMask, CP
 
 		if ((w->m_style.outlineWidthX + w->m_style.outlineWidthY > 0 || w->m_style.borderStyle == 1) && !(w->m_ktype == 2 && time < w->m_kstart)) {
 			int x = p.x;
+#ifdef _VSMOD // patch m001. Vertical fontspacing
+			int y = p.y - w->m_style.mod_verticalSpace + m_ascent - w->m_ascent;
+#else
 			int y = p.y + m_ascent - w->m_ascent;
+#endif
 			DWORD aoutline = w->m_style.alpha[2];
 			if (alpha > 0) {
 				aoutline += alpha*(0xff-w->m_style.alpha[2])/0xff;
@@ -1129,7 +1137,11 @@ CRect CLine::PaintBody(SubPicDesc& spd, CRect& clipRect, BYTE* pAlphaMask, CPoin
 		}
 
 		int x = p.x;
+#ifdef _VSMOD // patch m001. Vertical fontspacing
+		int y = p.y - w->m_style.mod_verticalSpace + m_ascent - w->m_ascent;
+#else
 		int y = p.y + m_ascent - w->m_ascent;
+#endif
 		// colors
 
 		DWORD aprimary = w->m_style.alpha[0];
@@ -2042,6 +2054,13 @@ bool CRenderedTextSubtitle::ParseSSATag(SSATagsList& tagsList, const CStringW& s
 					tag.paramsReal.Add(wcstod(cmd.Mid(3), NULL));
 				}
 				break;
+#ifdef _VSMOD // patch m001. Vertical fontspacing
+			case SSA_fsvp:
+				if (cmd.GetLength() > 4) {
+					tag.paramsReal.Add(wcstod(cmd.Mid(4), NULL));
+				}
+				break;
+#endif
 			case SSA_pbo:
 				if (cmd.GetLength() > 3) {
 					tag.paramsInt.Add(wcstol(cmd.Mid(3), NULL, 10));
@@ -2319,6 +2338,17 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 									? CalcAnimation(tag.paramsReal[0], style.fontSpacing, bAnimate)
 									: org.fontSpacing;
 				break;
+#ifdef _VSMOD // patch m001. Vertical fontspacing
+			case SSA_fsvp:
+			{
+				if (!tag.paramsReal.IsEmpty()) {
+					double dst = tag.paramsReal[0];
+					double nx = CalcAnimation(dst, style.mod_verticalSpace, bAnimate);
+					style.mod_verticalSpace = nx;
+				}
+				break;
+			}
+#endif
 			case SSA_fs:
 				if (!tag.paramsInt.IsEmpty() && !bUseOriginal) {
 					if (!tag.params.IsEmpty() && (tag.params[0][0] == L'-' || tag.params[0][0] == L'+')) {

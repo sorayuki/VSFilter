@@ -3273,6 +3273,10 @@ void STSStyle::SetDefault()
 	fGaussianBlur = 0;
 	fontShiftX = fontShiftY = fontAngleZ = fontAngleX = fontAngleY = 0;
 	relativeTo = 2;
+#ifdef _VSMOD
+	// patch m001. Vertical fontspacing
+	mod_verticalSpace = 0;
+#endif
 }
 
 bool STSStyle::operator == (const STSStyle& s) const
@@ -3295,6 +3299,10 @@ bool STSStyle::operator == (const STSStyle& s) const
 		   && fBlur == s.fBlur
 		   && fGaussianBlur == s.fGaussianBlur
 		   && relativeTo == s.relativeTo
+#ifdef _VSMOD
+		   // patch m001. Vertical fontspacing
+		   && mod_verticalSpace == s.mod_verticalSpace
+#endif
 		   && IsFontStyleEqual(s));
 }
 

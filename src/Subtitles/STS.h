@@ -54,6 +54,10 @@ public:
 	double		fontAngleZ, fontAngleX, fontAngleY;
 	double		fontShiftX, fontShiftY;
 	int			relativeTo;		// 0: window, 1: video, 2: undefined (~window)
+#ifdef _VSMOD
+	// patch m001. Vertical fontspacing
+	double  mod_verticalSpace;
+#endif
 
 	STSStyle();
 

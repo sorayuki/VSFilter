@@ -325,6 +325,9 @@ enum SSATagCmd {
 	SSA_fscy,
 	SSA_fsc,
 	SSA_fsp,
+#ifdef _VSMOD // patch m001. Vertical fontspacing
+	SSA_fsvp,
+#endif
 	SSA_fs,
 	SSA_iclip,
 	SSA_i,

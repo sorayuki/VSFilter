@@ -56,7 +56,9 @@ public:
 	int			relativeTo;		// 0: window, 1: video, 2: undefined (~window)
 #ifdef _VSMOD
 	// patch m001. Vertical fontspacing
-	double  mod_verticalSpace;
+	double		mod_verticalSpace;
+	// patch m002. Z-coord
+	double		mod_z;
 #endif
 
 	STSStyle();

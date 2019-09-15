@@ -3276,6 +3276,8 @@ void STSStyle::SetDefault()
 #ifdef _VSMOD
 	// patch m001. Vertical fontspacing
 	mod_verticalSpace = 0;
+	// patch m002. Z-coord
+	mod_z = 0;
 #endif
 }
 
@@ -3302,6 +3304,8 @@ bool STSStyle::operator == (const STSStyle& s) const
 #ifdef _VSMOD
 		   // patch m001. Vertical fontspacing
 		   && mod_verticalSpace == s.mod_verticalSpace
+		   // patch m002. Z-coord
+		   && mod_z == s.mod_z
 #endif
 		   && IsFontStyleEqual(s));
 }

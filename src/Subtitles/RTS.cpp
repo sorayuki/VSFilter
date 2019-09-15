@@ -252,7 +252,11 @@ void CWord::Transform(const CPoint &org ) // Transform_C
 
 		x = mpPathPoints[i].x;
 		y = mpPathPoints[i].y;
+#ifdef _VSMOD // patch m002. Z-coord
+		z = m_style.mod_z;
+#else
 		z = 0;
+#endif
 
 		const double dPPx = m_style.fontShiftX * y + x;
 		y = scaley * (m_style.fontShiftY * x + y) - dOrgY;
@@ -308,10 +312,16 @@ void CWord::Transform(const CPoint &org ) // Transform_SSE2
 
 	for (ptrdiff_t i = 0; i < mPathPointsD4 + 1; i++) {
 		__m128 __pointx, __pointy, __tmpx, __tmpy;
+#ifdef _VSMOD // patch m002. Z-coord
+		__m128 __pointz, __tmpz;
+#endif
 		// we can't use load .-.
 		if (i != mPathPointsD4) {
 			__pointx = _mm_set_ps((float)mpPathPoints[4 * i + 0].x, (float)mpPathPoints[4 * i + 1].x, (float)mpPathPoints[4 * i + 2].x, (float)mpPathPoints[4 * i + 3].x);
 			__pointy = _mm_set_ps((float)mpPathPoints[4 * i + 0].y, (float)mpPathPoints[4 * i + 1].y, (float)mpPathPoints[4 * i + 2].y, (float)mpPathPoints[4 * i + 3].y);
+#ifdef _VSMOD // patch m002. Z-coord
+			__pointz = _mm_set_ps1(m_style.mod_z);
+#endif
 		} else { // last cycle
 			switch (mPathPointsM4) {
 				default:
@@ -351,7 +361,11 @@ void CWord::Transform(const CPoint &org ) // Transform_SSE2
 		// rotate
 
 		__m128 __xx, __yy;
+#ifdef _VSMOD // patch m002. Z-coord
+		__m128 __zz = __pointz;
+#else
 		__m128 __zz = _mm_setzero_ps();
+#endif
 
 		// xx = x * caz + y * saz
 		__tmpx   = _mm_mul_ps(__pointx, __caz);      // x * caz
@@ -2030,7 +2044,13 @@ bool CRenderedTextSubtitle::ParseSSATag(SSATagsList& tagsList, const CStringW& s
 			case SSA_org:
 			case SSA_pos: {
 				size_t nParams = tag.params.GetCount();
+#ifdef _VSMOD
+				if (nParams == 2
+					|| (nParams == 3 && tag.cmd == SSA_pos))
+				{
+#else
 				if (nParams == 2) {
+#endif
 					for (size_t i = 0; i < nParams; i++) {
 						tag.paramsReal.Add(wcstod(tag.params[i], NULL));
 					}
@@ -2346,6 +2366,8 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 					double nx = CalcAnimation(dst, style.mod_verticalSpace, bAnimate);
 					style.mod_verticalSpace = nx;
 				}
+				else
+					style.mod_verticalSpace = org.mod_verticalSpace;
 				break;
 			}
 #endif
@@ -2443,13 +2465,25 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 				m_polygonBaselineOffset = !tag.paramsInt.IsEmpty() && !bUseOriginal ? tag.paramsInt[0] : 0;
 				break;
 			case SSA_pos:
+#ifdef _VSMOD
+				if ((tag.paramsReal.GetCount() == 2 || tag.paramsReal.GetCount() == 3)
+					&& !sub->m_effects[EF_MOVE]) 
+				{
+#else
 				if (tag.paramsReal.GetCount() == 2 && !sub->m_effects[EF_MOVE]) {
+#endif
 					if (Effect* e = DNew Effect) {
 						e->param[0] = e->param[2] = std::lround(sub->m_scalex * tag.paramsReal[0] * 8.0);
 						e->param[1] = e->param[3] = std::lround(sub->m_scaley * tag.paramsReal[1] * 8.0);
 						e->t[0] = e->t[1] = 0;
 
 						sub->m_effects[EF_MOVE] = e;
+#ifdef _VSMOD // patch m002. Z-coord
+						if (tag.paramsReal.GetCount() == 3)
+							style.mod_z = tag.paramsReal[2] * 80;
+						else
+							style.mod_z = 0;
+#endif
 					}
 				}
 				break;
@@ -2541,6 +2575,20 @@ bool CRenderedTextSubtitle::CreateSubFromSSATag(CSubtitle* sub, const SSATagsLis
 									 ? CalcAnimation(tag.paramsReal[0], style.shadowDepthY, bAnimate)
 									 : org.shadowDepthY;
 				break;
+#ifdef _VSMOD // patch m002. Z-coord
+			case SSA_z:
+			{
+				if (!tag.paramsReal.IsEmpty())
+				{
+					double dst = tag.paramsReal[0] * 80;
+					double nx = CalcAnimation(dst, style.mod_z, bAnimate);
+					style.mod_z = nx;
+				}
+				else
+					style.mod_z = org.mod_z;
+				break;
+			}
+#endif
 		}
 	}
 

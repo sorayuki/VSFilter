@@ -351,6 +351,9 @@ enum SSATagCmd {
 	SSA_xshad,
 	SSA_ybord,
 	SSA_yshad,
+#ifdef _VSMOD
+	SSA_z,
+#endif
 	SSA_unknown
 };
 
